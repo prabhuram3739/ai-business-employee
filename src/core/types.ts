@@ -54,3 +54,48 @@ export type Adapter<TConfig = unknown> = {
   id:string; source:SourceKind; label:string; status:AdapterStatus; config?:TConfig;
   normalize:(payload:unknown)=>unknown;
 };
+
+export type BookingSource =
+  | "Airbnb"
+  | "Booking.com"
+  | "Agoda"
+  | "MakeMyTrip"
+  | "Direct";
+
+export type BookingStatus =
+  | "Enquiry"
+  | "Quoted"
+  | "Confirmed"
+  | "Check-in"
+  | "In stay"
+  | "Checkout"
+  | "Completed"
+  | "Cancelled";
+
+export type PaymentStatus =
+  | "Pending"
+  | "Part paid"
+  | "Paid";
+
+export type HomestayBooking = {
+  id: string;
+  guestName: string;
+  source: BookingSource;
+
+  checkIn: string;
+  checkOut: string;
+
+  bookedGuests: number;
+  actualGuests?: number;
+
+  amount: number;
+  paymentStatus: PaymentStatus;
+
+  status: BookingStatus;
+
+  otaCommission?: number;
+  netAmount?: number;
+
+  guestPhone?: string;
+  notes?: string;
+};
