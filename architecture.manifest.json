@@ -1,0 +1,36 @@
+{
+  "version": "0.3.0",
+  "businesses": [
+    "restaurant",
+    "homestay",
+    "audit",
+    "ertiga"
+  ],
+  "shared_entities": [
+    "customer",
+    "sale",
+    "expense",
+    "reservation",
+    "workItem",
+    "vehicleTrip",
+    "review",
+    "payment",
+    "message"
+  ],
+  "external_systems": [
+    "Loyverse",
+    "Swiggy",
+    "Zomato",
+    "Google Sheets",
+    "Instagram",
+    "Google Business Profile",
+    "Airbnb",
+    "Booking.com",
+    "Agoda",
+    "MakeMyTrip",
+    "Asana",
+    "Zoomcar"
+  ],
+  "principle": "adapters -> canonical models -> workflows/rules -> AI -> approved actions -> adapters",
+  "status": "prototype; external integrations planned until authorized access is configured"
+}
