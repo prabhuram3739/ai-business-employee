@@ -90,6 +90,7 @@ export type HomestayBooking = {
 
   amount: number;
   paymentStatus: PaymentStatus;
+  amountReceived?: number;
 
   status: BookingStatus;
 

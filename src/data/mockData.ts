@@ -19,7 +19,7 @@ export const homestaySources = ["Airbnb","Booking.com","Agoda","MakeMyTrip","Goo
 export const auditStages = ["Todo","In Progress","Fees Pending","Fees Paid","Done"];
 export const vehicle = {registration:"TN41AY7489",platform:"Zoomcar",rating:"4.97",incentive:"At Risk",professionalHostEvaluation:"1 Sep 2026"};
 
-export const homestayBookings: HomestayBooking[] = [
+export const homestayBookings = [
   {
     id: "HS-2026-001",
     guestName: "Arun Kumar",
@@ -30,14 +30,14 @@ export const homestayBookings: HomestayBooking[] = [
     actualGuests: 4,
     amount: 7800,
     paymentStatus: "Paid",
+    amountReceived: 7800,
     status: "Confirmed",
     otaCommission: 936,
-    netAmount: 6864,
-    notes: "Standard 2-night booking"
+    netAmount: 6864
   },
   {
     id: "HS-2026-002",
-    guestName: "Priya S",
+    guestName: "Priya",
     source: "Booking.com",
     checkIn: "2026-08-16",
     checkOut: "2026-08-18",
@@ -46,8 +46,7 @@ export const homestayBookings: HomestayBooking[] = [
     paymentStatus: "Part paid",
     status: "Confirmed",
     otaCommission: 936,
-    netAmount: 6864,
-    notes: "Awaiting remaining payment"
+    netAmount: 6864
   },
   {
     id: "HS-2026-003",
@@ -58,10 +57,10 @@ export const homestayBookings: HomestayBooking[] = [
     bookedGuests: 5,
     amount: 8800,
     paymentStatus: "Paid",
+    amountReceived: 8800,
     status: "Confirmed",
     otaCommission: 1056,
-    netAmount: 7744,
-    notes: "4 guests included + 1 extra guest"
+    netAmount: 7744
   },
   {
     id: "HS-2026-004",
@@ -73,21 +72,23 @@ export const homestayBookings: HomestayBooking[] = [
     actualGuests: 6,
     amount: 4900,
     paymentStatus: "Paid",
+    amountReceived: 4900,
     status: "Confirmed",
-    notes: "Guest count requires owner review"
+    otaCommission: 0,
+    netAmount: 4900
   },
   {
     id: "HS-2026-005",
-    guestName: "Meena R",
+    guestName: "Meena",
     source: "MakeMyTrip",
     checkIn: "2026-08-25",
     checkOut: "2026-08-27",
     bookedGuests: 4,
     amount: 7800,
     paymentStatus: "Pending",
+    amountReceived: 0,
     status: "Quoted",
-    otaCommission: 936,
-    netAmount: 6864,
-    notes: "Payment pending confirmation"
+    otaCommission: 1404,
+    netAmount: 6396
   }
 ];
