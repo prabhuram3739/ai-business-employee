@@ -1,7 +1,46 @@
-import {BusinessModule,WorkItem} from "./types";
-export function getStage(module:BusinessModule,id:string){return module.stages.find(s=>s.id===id)}
-export function getModuleItems(items:WorkItem[],moduleId:string){return items.filter(i=>i.moduleId===moduleId)}
-export function workflowSummary(module:BusinessModule){
-  return module.stages.map(stage=>({stage,rules:module.rules.filter(r=>r.trigger.includes(stage.id)||r.condition.includes(stage.id))}))
-}
-export function getCriticalRules(module:BusinessModule){return module.rules.filter(r=>r.priority==="critical"||r.priority==="high")}
+import type {
+  BusinessModule,
+  WorkItem,
+  WorkflowRule,
+  WorkflowStage
+} from "./types";
+
+export const getStage = (
+  module: BusinessModule,
+  id: string
+): WorkflowStage | undefined =>
+  module.stages.find(
+    stage => stage.id === id
+  );
+
+export const getModuleItems = (
+  items: WorkItem[],
+  moduleId: string
+): WorkItem[] =>
+  items.filter(
+    item => item.moduleId === moduleId
+  );
+
+export const workflowSummary = (
+  module: BusinessModule
+): Array<{
+  stage: WorkflowStage;
+  rules: WorkflowRule[];
+}> =>
+  module.stages.map(stage => ({
+    stage,
+    rules: module.rules.filter(
+      rule =>
+        rule.trigger.includes(stage.id) ||
+        rule.condition.includes(stage.id)
+    )
+  }));
+
+export const getCriticalRules = (
+  module: BusinessModule
+): WorkflowRule[] =>
+  module.rules.filter(
+    rule =>
+      rule.priority === "critical" ||
+      rule.priority === "high"
+  );

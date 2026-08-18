@@ -1,7 +1,38 @@
-import {BriefcaseBusiness,CarFront,Home,Utensils} from "lucide-react";
-export function ModuleIcon({name,size=18}:{name:string;size?:number}){
- if(name==="home")return <Home size={size}/>;
- if(name==="utensils")return <Utensils size={size}/>;
- if(name==="car")return <CarFront size={size}/>;
- return <BriefcaseBusiness size={size}/>;
-}
+import {
+    BriefcaseBusiness,
+    CarFront,
+    Home,
+    Utensils
+} from "lucide-react";
+
+type ModuleIconName =
+    | "home"
+    | "utensils"
+    | "car"
+    | "business";
+
+type ModuleIconProps = {
+    name: string;
+    size?: number;
+};
+
+const moduleIcons = {
+    home: Home,
+    utensils: Utensils,
+    car: CarFront,
+    business: BriefcaseBusiness
+} as const;
+
+const ModuleIcon = ({
+    name,
+    size = 18
+}: ModuleIconProps) => {
+    const Icon =
+        moduleIcons[
+        name as ModuleIconName
+        ] ?? BriefcaseBusiness;
+
+    return <Icon size={size} />;
+};
+
+export default ModuleIcon;
