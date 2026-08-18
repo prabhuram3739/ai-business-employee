@@ -963,17 +963,93 @@ setShowForm(false);
       )}
 
       <div className="booking-actions">
-        <button className="secondary-button">
-          Check-in
-        </button>
+        {selectedBooking.status === "Confirmed" && (
+  <button
+    className="secondary-button"
+    onClick={() => {
+      businessStore.updateBooking(
+        selectedBooking.id,
+        booking => ({
+          ...booking,
+          status: "Check-in"
+        })
+      );
 
-        <button className="secondary-button">
-          Mark in stay
-        </button>
+      setSelectedBooking({
+        ...selectedBooking,
+        status: "Check-in"
+      });
+    }}
+  >
+    Check-in
+  </button>
+)}
 
-        <button className="primary-button">
-          Checkout
-        </button>
+{selectedBooking.status === "Check-in" && (
+  <button
+    className="secondary-button"
+    onClick={() => {
+      businessStore.updateBooking(
+        selectedBooking.id,
+        booking => ({
+          ...booking,
+          status: "In stay"
+        })
+      );
+
+      setSelectedBooking({
+        ...selectedBooking,
+        status: "In stay"
+      });
+    }}
+  >
+    Mark in stay
+  </button>
+)}
+
+{selectedBooking.status === "In stay" && (
+  <button
+    className="primary-button"
+    onClick={() => {
+      businessStore.updateBooking(
+        selectedBooking.id,
+        booking => ({
+          ...booking,
+          status: "Checkout"
+        })
+      );
+
+      setSelectedBooking({
+        ...selectedBooking,
+        status: "Checkout"
+      });
+    }}
+  >
+    Checkout
+  </button>
+)}
+
+{selectedBooking.status === "Checkout" && (
+  <button
+    className="primary-button"
+    onClick={() => {
+      businessStore.updateBooking(
+        selectedBooking.id,
+        booking => ({
+          ...booking,
+          status: "Completed"
+        })
+      );
+
+      setSelectedBooking({
+        ...selectedBooking,
+        status: "Completed"
+      });
+    }}
+  >
+    Complete stay
+  </button>
+)}
       </div>
 
     </div>

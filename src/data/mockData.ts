@@ -19,7 +19,7 @@ export const homestaySources = ["Airbnb","Booking.com","Agoda","MakeMyTrip","Goo
 export const auditStages = ["Todo","In Progress","Fees Pending","Fees Paid","Done"];
 export const vehicle = {registration:"TN41AY7489",platform:"Zoomcar",rating:"4.97",incentive:"At Risk",professionalHostEvaluation:"1 Sep 2026"};
 
-export const homestayBookings = [
+export const homestayBookings: HomestayBooking[] = [
   {
     id: "HS-2026-001",
     guestName: "Arun Kumar",
