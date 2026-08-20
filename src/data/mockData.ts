@@ -33,8 +33,8 @@ export const homestayBookings: HomestayBooking[] = [
     amountReceived: 7800,
     status: "Confirmed",
     otaCommission: 936,
-    netAmount: 6864
-  },
+    netAmount: 6864,
+    },
   {
     id: "HS-2026-002",
     guestName: "Priya",
@@ -46,7 +46,7 @@ export const homestayBookings: HomestayBooking[] = [
     paymentStatus: "Part paid",
     status: "Confirmed",
     otaCommission: 936,
-    netAmount: 6864
+    netAmount: 6864,
   },
   {
     id: "HS-2026-003",
@@ -60,7 +60,8 @@ export const homestayBookings: HomestayBooking[] = [
     amountReceived: 8800,
     status: "Confirmed",
     otaCommission: 1056,
-    netAmount: 7744
+    netAmount: 7744,
+    occupancyDecision: "Pending",
   },
   {
     id: "HS-2026-004",
@@ -75,7 +76,9 @@ export const homestayBookings: HomestayBooking[] = [
     amountReceived: 4900,
     status: "Confirmed",
     otaCommission: 0,
-    netAmount: 4900
+    netAmount: 4900,
+    occupancyDecision: "Pending",
+
   },
   {
     id: "HS-2026-005",
@@ -89,6 +92,6 @@ export const homestayBookings: HomestayBooking[] = [
     amountReceived: 0,
     status: "Quoted",
     otaCommission: 1404,
-    netAmount: 6396
+    netAmount: 6396,
   }
 ];

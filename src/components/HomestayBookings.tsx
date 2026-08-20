@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState
+} from "react";
 
 import type {
   BookingSource,
@@ -12,37 +15,36 @@ import { businessStore } from "../core/store";
 
 type Props = {
   bookings: HomestayBooking[];
+  initialSelectedBookingId?: string | null;
 };
 
-type BookingForm = {
+type BookingFormState = {
   guestName: string;
   source: BookingSource;
   checkIn: string;
   checkOut: string;
-  bookedGuests: number;
+  bookedGuests: string;
   actualGuests: string;
-  amount: number;
+  amount: string;
   paymentStatus: PaymentStatus;
-  amountReceived: string;
   status: BookingStatus;
   guestPhone: string;
   notes: string;
 };
 
-const initialForm: BookingForm = {
+const createEmptyForm = (): BookingFormState => ({
   guestName: "",
   source: "Direct",
   checkIn: "",
   checkOut: "",
-  bookedGuests: 4,
+  bookedGuests: "4",
   actualGuests: "",
-  amount: 0,
+  amount: "0",
   paymentStatus: "Pending",
-  amountReceived: "",
   status: "Quoted",
   guestPhone: "",
   notes: ""
-};
+});
 
 const statusClass = (
   status: HomestayBooking["status"]
@@ -60,11 +62,17 @@ const statusClass = (
     case "In stay":
       return "status instay";
 
+    case "Checkout":
+      return "status checkout";
+
     case "Completed":
       return "status completed";
 
     case "Cancelled":
       return "status cancelled";
+
+    case "Enquiry":
+      return "status enquiry";
 
     default:
       return "status";
@@ -107,7 +115,9 @@ const sourceClass = (
   }
 };
 
-const formatDate = (date: string): string => {
+const formatDate = (
+  date: string
+): string => {
   if (!date) {
     return "-";
   }
@@ -122,311 +132,231 @@ const formatDate = (date: string): string => {
   );
 };
 
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0
-  }).format(amount);
-};
-
-const generateBookingId = (
-  source: BookingSource
+const formatCurrency = (
+  amount: number
 ): string => {
-  const prefix =
-    source === "Direct"
-      ? "HS"
-      : source === "Booking.com"
-        ? "HS-BOOK"
-        : source === "MakeMyTrip"
-          ? "HS-MMT"
-          : source === "Airbnb"
-            ? "HS-AIR"
-            : "HS-AGO";
-
-  return `${prefix}-${Date.now()
-    .toString()
-    .slice(-6)}`;
+  return new Intl.NumberFormat(
+    "en-IN",
+    {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0
+    }
+  ).format(amount);
 };
 
-const getOtaCommission = (
-  source: BookingSource
-): number => {
-  switch (source) {
-    case "Airbnb":
-      return 0.03;
+const getNextStatus = (
+  status: BookingStatus
+): BookingStatus | null => {
+  switch (status) {
+    case "Confirmed":
+      return "Check-in";
 
-    case "Booking.com":
-      return 0.15;
+    case "Check-in":
+      return "In stay";
 
-    case "Agoda":
-      return 0.15;
+    case "In stay":
+      return "Checkout";
 
-    case "MakeMyTrip":
-      return 0.18;
+    case "Checkout":
+      return "Completed";
 
     default:
-      return 0;
+      return null;
+  }
+};
+
+const getNextStatusLabel = (
+  status: BookingStatus
+): string | null => {
+  switch (status) {
+    case "Confirmed":
+      return "Check-in";
+
+    case "Check-in":
+      return "Mark in stay";
+
+    case "In stay":
+      return "Checkout";
+
+    case "Checkout":
+      return "Complete stay";
+
+    default:
+      return null;
   }
 };
 
 const HomestayBookings = ({
-  bookings: initialBookings
-}: Props) => {
-  const [bookings, setBookings] =
-    useState<HomestayBooking[]>(initialBookings);
+  bookings,
+  initialSelectedBookingId = null
+}: Props): React.JSX.Element => {
+  const [showNewBooking, setShowNewBooking] =
+    useState(false);
 
   const [selectedBooking, setSelectedBooking] =
     useState<HomestayBooking | null>(null);
 
-  const [showForm, setShowForm] =
-    useState(false);
-
-  const [editingBookingId, setEditingBookingId] =
-    useState<string | null>(null);
-
   const [form, setForm] =
-    useState<BookingForm>(initialForm);
-
-  useEffect(() => {
-    businessStore.setState({
-      bookings: initialBookings
-    });
-
-    setBookings(
-      businessStore.getState().bookings
+    useState<BookingFormState>(
+      createEmptyForm()
     );
 
-    return businessStore.subscribe(() => {
-      setBookings(
-        businessStore.getState().bookings
-      );
-    });
-  }, [initialBookings]);
+  /*
+   * When Exception Center sends us a booking ID,
+   * automatically open that booking.
+   */
+  useEffect(() => {
+    if (!initialSelectedBookingId) {
+      return;
+    }
 
-  const totalBookings = bookings.length;
+    const booking = bookings.find(
+      item =>
+        item.id ===
+        initialSelectedBookingId
+    );
 
-  const confirmedBookings = bookings.filter(
-    booking => booking.status === "Confirmed"
-  ).length;
+    if (booking) {
+      setSelectedBooking(booking);
+    }
+  }, [
+    initialSelectedBookingId,
+    bookings
+  ]);
 
-  const pendingPayments = bookings.filter(
-    booking =>
-      booking.amountReceived === undefined ||
-      booking.amountReceived < booking.amount
-  ).length;
+  const totalBookings =
+    bookings.length;
 
-  const guestMismatches = bookings.filter(
-    booking =>
-      booking.actualGuests !== undefined &&
-      booking.actualGuests > booking.bookedGuests
-  ).length;
+  const confirmedBookings =
+    bookings.filter(
+      booking =>
+        booking.status ===
+        "Confirmed"
+    ).length;
 
-  const updateForm = <K extends keyof BookingForm>(
+  const pendingPayments =
+    bookings.filter(
+      booking =>
+        booking.paymentStatus !==
+        "Paid"
+    ).length;
+
+  const guestMismatches =
+    bookings.filter(
+      booking =>
+        booking.actualGuests !==
+        undefined &&
+        booking.actualGuests >
+        booking.bookedGuests
+    ).length;
+
+  const sortedBookings =
+    useMemo(
+      () =>
+        [...bookings].sort(
+          (a, b) =>
+            a.checkIn.localeCompare(
+              b.checkIn
+            )
+        ),
+      [bookings]
+    );
+
+  const updateForm = <
+    K extends keyof BookingFormState
+  >(
     field: K,
-    value: BookingForm[K]
+    value: BookingFormState[K]
   ): void => {
-    setForm(current => ({
-      ...current,
+    setForm(previous => ({
+      ...previous,
       [field]: value
     }));
   };
 
-  const resetForm = (): void => {
-    setForm({
-      ...initialForm
-    });
-  };
-
-  const handleNewBooking = (): void => {
-    resetForm();
-    setEditingBookingId(null);
-    setShowForm(true);
-  };
-
-  const handleEditBooking = (
-    booking: HomestayBooking
-  ): void => {
-    setEditingBookingId(booking.id);
-
-    setForm({
-      guestName: booking.guestName,
-      source: booking.source,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-      bookedGuests: booking.bookedGuests,
-      actualGuests:
-        booking.actualGuests !== undefined
-          ? String(booking.actualGuests)
-          : "",
-      amount: booking.amount,
-      paymentStatus: booking.paymentStatus,
-      amountReceived:
-        booking.amountReceived !== undefined
-          ? String(booking.amountReceived)
-          : "",
-      status: booking.status,
-      guestPhone: booking.guestPhone ?? "",
-      notes: booking.notes ?? ""
-    });
-
-    setShowForm(true);
-  };
-
-  const handleCancel = (): void => {
-    resetForm();
-    setEditingBookingId(null);
-    setShowForm(false);
-  };
-
-  const handleSaveBooking = (
-    event: FormEvent<HTMLFormElement>
-  ): void => {
-    event.preventDefault();
-
-    if (!form.guestName.trim()) {
-      alert("Please enter guest name.");
-      return;
-    }
-
-    if (!form.checkIn || !form.checkOut) {
-      alert(
-        "Please select check-in and check-out dates."
-      );
-      return;
-    }
-
-    if (form.checkOut <= form.checkIn) {
-      alert(
-        "Check-out must be after check-in."
-      );
-      return;
-    }
-
-    if (form.bookedGuests < 1) {
-      alert(
-        "Guest count must be at least 1."
-      );
-      return;
-    }
-
-    if (form.amount < 0) {
-      alert(
-        "Booking amount cannot be negative."
-      );
-      return;
-    }
-
-    const commissionRate =
-      getOtaCommission(form.source);
-
-    const otaCommission =
-      form.source === "Direct"
-        ? 0
-        : Math.round(
-          form.amount * commissionRate
-        );
-
-    const netAmount =
-      form.amount - otaCommission;
-
-    const actualGuests =
-      form.actualGuests.trim() === ""
-        ? undefined
-        : Number(form.actualGuests);
-
-    const amountReceived =
-      form.amountReceived.trim() === ""
-        ? undefined
-        : Number(form.amountReceived);
-
+  const handleCreateBooking = (): void => {
     if (
-      amountReceived !== undefined &&
-      amountReceived < 0
+      !form.guestName.trim() ||
+      !form.checkIn ||
+      !form.checkOut ||
+      !form.bookedGuests
     ) {
-      alert(
-        "Amount received cannot be negative."
-      );
       return;
     }
 
-    if (
-      amountReceived !== undefined &&
-      amountReceived > form.amount
-    ) {
-      alert(
-        "Amount received cannot exceed booking amount."
-      );
-      return;
-    }
-
-    const calculatedPaymentStatus: PaymentStatus =
-      amountReceived === undefined ||
-        amountReceived === 0
-        ? "Pending"
-        : amountReceived >= form.amount
-          ? "Paid"
-          : "Part paid";
+    const bookingNumber =
+      String(
+        bookings.length + 1
+      ).padStart(3, "0");
 
     const booking: HomestayBooking = {
-      id: generateBookingId(form.source),
-      guestName: form.guestName.trim(),
-      source: form.source,
-      checkIn: form.checkIn,
-      checkOut: form.checkOut,
-      bookedGuests: Number(
-        form.bookedGuests
-      ),
-      actualGuests,
-      amount: Number(form.amount),
+      id: `HS-${new Date()
+        .getFullYear()}-${bookingNumber}`,
+
+      guestName:
+        form.guestName.trim(),
+
+      source:
+        form.source,
+
+      checkIn:
+        form.checkIn,
+
+      checkOut:
+        form.checkOut,
+
+      bookedGuests:
+        Number(form.bookedGuests),
+
+      ...(form.actualGuests
+        ? {
+          actualGuests:
+            Number(
+              form.actualGuests
+            )
+        }
+        : {}),
+
+      amount:
+        Number(form.amount) || 0,
+
       paymentStatus:
-        calculatedPaymentStatus,
-      amountReceived,
-      status: form.status,
-      otaCommission,
-      netAmount,
-      guestPhone:
-        form.guestPhone.trim() ||
-        undefined,
-      notes:
-        form.notes.trim() ||
-        undefined
+        form.paymentStatus,
+
+      status:
+        form.status,
+
+      ...(form.guestPhone.trim()
+        ? {
+          guestPhone:
+            form.guestPhone.trim()
+        }
+        : {}),
+
+      ...(form.notes.trim()
+        ? {
+          notes:
+            form.notes.trim()
+        }
+        : {})
     };
 
-    if (editingBookingId) {
-      businessStore.updateBooking(
-        editingBookingId,
-        currentBooking => ({
-          ...currentBooking,
-          ...booking,
-          id: editingBookingId
-        })
-      );
+    businessStore.addBooking(
+      booking
+    );
 
-      const updatedBooking = {
-        ...booking,
-        id: editingBookingId
-      };
+    setForm(
+      createEmptyForm()
+    );
 
-      setSelectedBooking(
-        current =>
-          current?.id === editingBookingId
-            ? updatedBooking
-            : current
-      );
-    } else {
-      businessStore.addBooking(
-        booking
-      );
-    }
-
-    resetForm();
-    setEditingBookingId(null);
-    setShowForm(false);
+    setShowNewBooking(
+      false
+    );
   };
 
-  const handleWorkflowTransition = (
-    nextStatus: BookingStatus
+  const updateBookingStatus = (
+    status: BookingStatus
   ): void => {
     if (!selectedBooking) {
       return;
@@ -436,435 +366,357 @@ const HomestayBookings = ({
       selectedBooking.id,
       booking => ({
         ...booking,
-        status: nextStatus
+        status
       })
     );
 
-    setSelectedBooking(current =>
-      current
-        ? {
-          ...current,
-          status: nextStatus
-        }
-        : null
+    setSelectedBooking(
+      previous =>
+        previous
+          ? {
+            ...previous,
+            status
+          }
+          : previous
     );
   };
 
-  const handleCloseDetails = (): void => {
-    setSelectedBooking(null);
-  };
-
-  const getBalanceDue = (
-    booking: HomestayBooking
-  ): number => {
-    return Math.max(
-      booking.amount -
-      (booking.amountReceived ?? 0),
-      0
+  const handleCancelBooking = (): void => {
+    updateBookingStatus(
+      "Cancelled"
     );
   };
+
+  const nextStatus =
+    selectedBooking
+      ? getNextStatus(
+        selectedBooking.status
+      )
+      : null;
+
+  const nextStatusLabel =
+    selectedBooking
+      ? getNextStatusLabel(
+        selectedBooking.status
+      )
+      : null;
 
   return (
     <section className="homestay-bookings">
-
-      {/* HEADER */}
-
       <div className="module-heading">
-
         <div>
           <p className="eyebrow">
             MMVK HOMESTAY
           </p>
 
-          <h2>Bookings</h2>
+          <h2>
+            Bookings
+          </h2>
 
           <p className="module-description">
-            Manage OTA and direct reservations
-            from one place.
+            Manage OTA and direct
+            reservations from one
+            place.
           </p>
         </div>
 
         <button
           type="button"
           className="primary-button"
-          onClick={handleNewBooking}
+          onClick={() =>
+            setShowNewBooking(
+              previous =>
+                !previous
+            )
+          }
         >
           + New booking
         </button>
-
       </div>
 
-      {/* BOOKING FORM */}
-
-      {showForm && (
+      {showNewBooking && (
         <div className="booking-form-card">
-
-          <div className="table-heading">
-
+          <div className="section-head">
             <div>
+              <h2>
+                New booking
+              </h2>
 
-              <h3>
-                {editingBookingId
-                  ? "Edit booking"
-                  : "New booking"}
-              </h3>
-
-              <span>
-                {editingBookingId
-                  ? "Update this MMVK Homestay reservation"
-                  : "Create a reservation for MMVK Homestay"}
-              </span>
-
+              <p>
+                Create a reservation
+                for MMVK Homestay
+              </p>
             </div>
-
           </div>
 
-          <form
-            onSubmit={handleSaveBooking}
-          >
+          <div className="booking-form-grid">
+            <label>
+              Guest name *
+              <input
+                type="text"
+                value={
+                  form.guestName
+                }
+                placeholder="Guest name"
+                onChange={event =>
+                  updateForm(
+                    "guestName",
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </label>
 
-            <div className="booking-form-grid">
-
-              {/* GUEST NAME */}
-
-              <label>
-                <span>
-                  Guest name *
-                </span>
-
-                <input
-                  type="text"
-                  value={form.guestName}
-                  onChange={event =>
-                    updateForm(
-                      "guestName",
-                      event.target.value
-                    )
-                  }
-                  placeholder="Guest name"
-                />
-              </label>
-
-              {/* SOURCE */}
-
-              <label>
-                <span>
-                  Booking source
-                </span>
-
-                <select
-                  value={form.source}
-                  onChange={event =>
-                    updateForm(
-                      "source",
-                      event.target
-                        .value as BookingSource
-                    )
-                  }
-                >
-                  <option value="Direct">
-                    Direct
-                  </option>
-
-                  <option value="Airbnb">
-                    Airbnb
-                  </option>
-
-                  <option value="Booking.com">
-                    Booking.com
-                  </option>
-
-                  <option value="Agoda">
-                    Agoda
-                  </option>
-
-                  <option value="MakeMyTrip">
-                    MakeMyTrip
-                  </option>
-                </select>
-              </label>
-
-              {/* CHECK-IN */}
-
-              <label>
-                <span>
-                  Check-in *
-                </span>
-
-                <input
-                  type="date"
-                  value={form.checkIn}
-                  onChange={event =>
-                    updateForm(
-                      "checkIn",
-                      event.target.value
-                    )
-                  }
-                />
-              </label>
-
-              {/* CHECK-OUT */}
-
-              <label>
-                <span>
-                  Check-out *
-                </span>
-
-                <input
-                  type="date"
-                  value={form.checkOut}
-                  onChange={event =>
-                    updateForm(
-                      "checkOut",
-                      event.target.value
-                    )
-                  }
-                />
-              </label>
-
-              {/* BOOKED GUESTS */}
-
-              <label>
-                <span>
-                  Booked guests *
-                </span>
-
-                <input
-                  type="number"
-                  min="1"
-                  value={form.bookedGuests}
-                  onChange={event =>
-                    updateForm(
-                      "bookedGuests",
-                      Number(
-                        event.target.value
-                      )
-                    )
-                  }
-                />
-              </label>
-
-              {/* ACTUAL GUESTS */}
-
-              <label>
-                <span>
-                  Actual guests
-                </span>
-
-                <input
-                  type="number"
-                  min="1"
-                  value={form.actualGuests}
-                  onChange={event =>
-                    updateForm(
-                      "actualGuests",
-                      event.target.value
-                    )
-                  }
-                  placeholder="Optional"
-                />
-              </label>
-
-              {/* BOOKING AMOUNT */}
-
-              <label>
-                <span>
-                  Booking amount
-                </span>
-
-                <input
-                  type="number"
-                  min="0"
-                  value={form.amount}
-                  onChange={event =>
-                    updateForm(
-                      "amount",
-                      Number(
-                        event.target.value
-                      )
-                    )
-                  }
-                  placeholder="₹"
-                />
-              </label>
-
-              {/* AMOUNT RECEIVED */}
-
-              <label>
-                <span>
-                  Amount received
-                </span>
-
-                <input
-                  type="number"
-                  min="0"
-                  value={form.amountReceived}
-                  onChange={event =>
-                    updateForm(
-                      "amountReceived",
-                      event.target.value
-                    )
-                  }
-                  placeholder="₹0"
-                />
-              </label>
-
-              {/* PAYMENT STATUS */}
-
-              <label>
-                <span>
-                  Payment status
-                </span>
-
-                <select
-                  value={form.paymentStatus}
-                  onChange={event =>
-                    updateForm(
-                      "paymentStatus",
-                      event.target
-                        .value as PaymentStatus
-                    )
-                  }
-                >
-                  <option value="Pending">
-                    Pending
-                  </option>
-
-                  <option value="Part paid">
-                    Part paid
-                  </option>
-
-                  <option value="Paid">
-                    Paid
-                  </option>
-                </select>
-              </label>
-
-              {/* BOOKING STATUS */}
-
-              <label>
-                <span>
-                  Booking status
-                </span>
-
-                <select
-                  value={form.status}
-                  onChange={event =>
-                    updateForm(
-                      "status",
-                      event.target
-                        .value as BookingStatus
-                    )
-                  }
-                >
-                  <option value="Enquiry">
-                    Enquiry
-                  </option>
-
-                  <option value="Quoted">
-                    Quoted
-                  </option>
-
-                  <option value="Confirmed">
-                    Confirmed
-                  </option>
-
-                  <option value="Check-in">
-                    Check-in
-                  </option>
-
-                  <option value="In stay">
-                    In stay
-                  </option>
-
-                  <option value="Checkout">
-                    Checkout
-                  </option>
-
-                  <option value="Completed">
-                    Completed
-                  </option>
-
-                  <option value="Cancelled">
-                    Cancelled
-                  </option>
-                </select>
-              </label>
-
-              {/* PHONE */}
-
-              <label>
-                <span>
-                  Guest phone
-                </span>
-
-                <input
-                  type="tel"
-                  value={form.guestPhone}
-                  onChange={event =>
-                    updateForm(
-                      "guestPhone",
-                      event.target.value
-                    )
-                  }
-                  placeholder="Optional"
-                />
-              </label>
-
-              {/* NOTES */}
-
-              <label className="booking-form-full">
-
-                <span>
-                  Notes
-                </span>
-
-                <textarea
-                  value={form.notes}
-                  onChange={event =>
-                    updateForm(
-                      "notes",
-                      event.target.value
-                    )
-                  }
-                  placeholder="Booking notes..."
-                  rows={3}
-                />
-
-              </label>
-
-            </div>
-
-            <div className="booking-form-actions">
-
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={handleCancel}
+            <label>
+              Booking source
+              <select
+                value={
+                  form.source
+                }
+                onChange={event =>
+                  updateForm(
+                    "source",
+                    event.target
+                      .value as BookingSource
+                  )
+                }
               >
-                Cancel
-              </button>
+                <option value="Direct">
+                  Direct
+                </option>
 
-              <button
-                type="submit"
-                className="primary-button"
+                <option value="Airbnb">
+                  Airbnb
+                </option>
+
+                <option value="Booking.com">
+                  Booking.com
+                </option>
+
+                <option value="Agoda">
+                  Agoda
+                </option>
+
+                <option value="MakeMyTrip">
+                  MakeMyTrip
+                </option>
+              </select>
+            </label>
+
+            <label>
+              Check-in *
+              <input
+                type="date"
+                value={
+                  form.checkIn
+                }
+                onChange={event =>
+                  updateForm(
+                    "checkIn",
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              Check-out *
+              <input
+                type="date"
+                value={
+                  form.checkOut
+                }
+                onChange={event =>
+                  updateForm(
+                    "checkOut",
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              Booked guests *
+              <input
+                type="number"
+                min="1"
+                value={
+                  form.bookedGuests
+                }
+                onChange={event =>
+                  updateForm(
+                    "bookedGuests",
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              Actual guests
+              <input
+                type="number"
+                min="0"
+                value={
+                  form.actualGuests
+                }
+                placeholder="Optional"
+                onChange={event =>
+                  updateForm(
+                    "actualGuests",
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              Booking amount
+              <input
+                type="number"
+                min="0"
+                value={
+                  form.amount
+                }
+                onChange={event =>
+                  updateForm(
+                    "amount",
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              Payment status
+              <select
+                value={
+                  form.paymentStatus
+                }
+                onChange={event =>
+                  updateForm(
+                    "paymentStatus",
+                    event.target
+                      .value as PaymentStatus
+                  )
+                }
               >
-                {editingBookingId
-                  ? "Save changes"
-                  : "Save booking"}
-              </button>
+                <option value="Pending">
+                  Pending
+                </option>
 
-            </div>
+                <option value="Part paid">
+                  Part paid
+                </option>
 
-          </form>
+                <option value="Paid">
+                  Paid
+                </option>
+              </select>
+            </label>
 
+            <label>
+              Booking status
+              <select
+                value={
+                  form.status
+                }
+                onChange={event =>
+                  updateForm(
+                    "status",
+                    event.target
+                      .value as BookingStatus
+                  )
+                }
+              >
+                <option value="Enquiry">
+                  Enquiry
+                </option>
+
+                <option value="Quoted">
+                  Quoted
+                </option>
+
+                <option value="Confirmed">
+                  Confirmed
+                </option>
+              </select>
+            </label>
+
+            <label>
+              Guest phone
+              <input
+                type="tel"
+                value={
+                  form.guestPhone
+                }
+                placeholder="Optional"
+                onChange={event =>
+                  updateForm(
+                    "guestPhone",
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </label>
+
+            <label className="booking-form-full">
+              Notes
+              <textarea
+                value={
+                  form.notes
+                }
+                placeholder="Booking notes..."
+                rows={3}
+                onChange={event =>
+                  updateForm(
+                    "notes",
+                    event.target
+                      .value
+                  )
+                }
+              />
+            </label>
+          </div>
+
+          <div className="booking-form-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setShowNewBooking(
+                  false
+                );
+
+                setForm(
+                  createEmptyForm()
+                );
+              }}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              className="primary-button"
+              onClick={
+                handleCreateBooking
+              }
+            >
+              Save booking
+            </button>
+          </div>
         </div>
       )}
 
-      {/* SUMMARY */}
-
       <div className="booking-summary">
-
         <div className="booking-summary-card">
           <span>
             Total bookings
@@ -904,531 +756,583 @@ const HomestayBookings = ({
             {guestMismatches}
           </strong>
         </div>
-
       </div>
 
-      {/* RESERVATION TABLE */}
-
       <div className="booking-table-card">
-
         <div className="table-heading">
-
           <div>
-
             <h3>
               Reservations
             </h3>
 
             <span>
-              {totalBookings} reservations
+              {totalBookings}{" "}
+              reservations
             </span>
-
           </div>
-
         </div>
 
         <div className="booking-table-wrapper">
-
           <table className="booking-table">
-
             <thead>
-
               <tr>
-                <th>Guest</th>
-                <th>Source</th>
-                <th>Stay</th>
-                <th>Guests</th>
-                <th>Amount</th>
-                <th>Payment</th>
-                <th>Status</th>
-              </tr>
+                <th>
+                  Guest
+                </th>
 
+                <th>
+                  Source
+                </th>
+
+                <th>
+                  Stay
+                </th>
+
+                <th>
+                  Guests
+                </th>
+
+                <th>
+                  Amount
+                </th>
+
+                <th>
+                  Payment
+                </th>
+
+                <th>
+                  Status
+                </th>
+              </tr>
             </thead>
 
             <tbody>
+              {sortedBookings.map(
+                booking => {
+                  const hasGuestMismatch =
+                    booking.actualGuests !==
+                    undefined &&
+                    booking.actualGuests >
+                    booking.bookedGuests;
 
-              {bookings.map(booking => {
-
-                const hasGuestMismatch =
-                  booking.actualGuests !==
-                  undefined &&
-                  booking.actualGuests >
-                  booking.bookedGuests;
-
-                return (
-                  <tr
-                    key={booking.id}
-                    className="booking-row"
-                    onClick={() =>
-                      setSelectedBooking(
-                        booking
-                      )
-                    }
-                  >
-
-                    {/* GUEST */}
-
-                    <td>
-
-                      <button
-                        type="button"
-                        className="booking-guest-button"
-                        onClick={event => {
-                          event.stopPropagation();
-                          handleEditBooking(
-                            booking
-                          );
-                        }}
-                      >
-
-                        <span className="guest-cell">
-
+                  return (
+                    <tr
+                      key={
+                        booking.id
+                      }
+                      className={
+                        selectedBooking?.id ===
+                          booking.id
+                          ? "selected-row"
+                          : ""
+                      }
+                      onClick={() =>
+                        setSelectedBooking(
+                          booking
+                        )
+                      }
+                    >
+                      <td>
+                        <div className="guest-cell">
                           <strong>
-                            {booking.guestName}
+                            {
+                              booking.guestName
+                            }
                           </strong>
 
                           <span>
-                            {booking.id}
+                            {
+                              booking.id
+                            }
                           </span>
+                        </div>
+                      </td>
 
+                      <td>
+                        <span
+                          className={sourceClass(
+                            booking.source
+                          )}
+                        >
+                          {
+                            booking.source
+                          }
                         </span>
+                      </td>
 
-                      </button>
+                      <td>
+                        <div className="stay-cell">
+                          <strong>
+                            {formatDate(
+                              booking.checkIn
+                            )}
+                          </strong>
 
-                    </td>
+                          <span>
+                            to{" "}
+                            {formatDate(
+                              booking.checkOut
+                            )}
+                          </span>
+                        </div>
+                      </td>
 
-                    {/* SOURCE */}
+                      <td>
+                        <div
+                          className={
+                            hasGuestMismatch
+                              ? "guest-count mismatch"
+                              : "guest-count"
+                          }
+                        >
+                          <strong>
+                            {
+                              booking.bookedGuests
+                            }
+                          </strong>
 
-                    <td>
+                          {booking.actualGuests !==
+                            undefined && (
+                              <span>
+                                actual{" "}
+                                {
+                                  booking.actualGuests
+                                }
+                              </span>
+                            )}
+                        </div>
+                      </td>
 
-                      <span
-                        className={sourceClass(
-                          booking.source
-                        )}
-                      >
-                        {booking.source}
-                      </span>
+                      <td>
+                        <div className="amount-cell">
+                          <strong>
+                            {formatCurrency(
+                              booking.amount
+                            )}
+                          </strong>
 
-                    </td>
+                          {booking.netAmount !==
+                            undefined && (
+                              <span>
+                                net{" "}
+                                {formatCurrency(
+                                  booking.netAmount
+                                )}
+                              </span>
+                            )}
+                        </div>
+                      </td>
 
-                    {/* STAY */}
-
-                    <td>
-
-                      <div className="stay-cell">
-
-                        <strong>
-                          {formatDate(
-                            booking.checkIn
+                      <td>
+                        <span
+                          className={paymentClass(
+                            booking.paymentStatus
                           )}
-                        </strong>
-
-                        <span>
-                          to{" "}
-                          {formatDate(
-                            booking.checkOut
-                          )}
+                        >
+                          {
+                            booking.paymentStatus
+                          }
                         </span>
+                      </td>
 
-                      </div>
-
-                    </td>
-
-                    {/* GUESTS */}
-
-                    <td>
-
-                      <div
-                        className={
-                          hasGuestMismatch
-                            ? "guest-count mismatch"
-                            : "guest-count"
-                        }
-                      >
-
-                        <strong>
-                          {booking.bookedGuests}
-                        </strong>
-
-                        {booking.actualGuests !==
-                          undefined && (
-                            <span>
-                              actual{" "}
-                              {booking.actualGuests}
-                            </span>
+                      <td>
+                        <span
+                          className={statusClass(
+                            booking.status
                           )}
-
-                      </div>
-
-                    </td>
-
-                    {/* AMOUNT */}
-
-                    <td>
-
-                      <div className="amount-cell">
-
-                        <strong>
-                          {formatCurrency(
-                            booking.amount
-                          )}
-                        </strong>
-
-                        {booking.amountReceived !==
-                          undefined && (
-                            <span>
-                              received{" "}
-                              {formatCurrency(
-                                booking.amountReceived
-                              )}
-                            </span>
-                          )}
-
-                        {booking.amountReceived !==
-                          undefined && (
-                            <span
-                              className={
-                                booking.amountReceived <
-                                  booking.amount
-                                  ? "balance-due"
-                                  : "balance-paid"
-                              }
-                            >
-                              balance{" "}
-                              {formatCurrency(
-                                getBalanceDue(
-                                  booking
-                                )
-                              )}
-                            </span>
-                          )}
-
-                        {booking.netAmount !==
-                          undefined && (
-                            <span>
-                              net{" "}
-                              {formatCurrency(
-                                booking.netAmount
-                              )}
-                            </span>
-                          )}
-
-                      </div>
-
-                    </td>
-
-                    {/* PAYMENT */}
-
-                    <td>
-
-                      <span
-                        className={paymentClass(
-                          booking.paymentStatus
-                        )}
-                      >
-                        {booking.paymentStatus}
-                      </span>
-
-                    </td>
-
-                    {/* STATUS */}
-
-                    <td>
-
-                      <span
-                        className={statusClass(
-                          booking.status
-                        )}
-                      >
-                        {booking.status}
-                      </span>
-
-                    </td>
-
-                  </tr>
-                );
-              })}
-
+                        >
+                          {
+                            booking.status
+                          }
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                }
+              )}
             </tbody>
-
           </table>
-
         </div>
-
       </div>
 
-      {/* BOOKING DETAILS */}
-
       {selectedBooking && (
-        <div className="booking-detail-overlay">
+        <div className="booking-detail-card">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">
+                RESERVATION
+              </p>
 
-          <div className="booking-detail-panel">
-
-            <div className="booking-detail-header">
-
-              <div>
-
-                <p className="eyebrow">
-                  BOOKING DETAILS
-                </p>
-
-                <h2>
-                  {selectedBooking.guestName}
-                </h2>
-
-                <span>
-                  {selectedBooking.id}
-                </span>
-
-              </div>
-
-              <button
-                type="button"
-                className="detail-close"
-                onClick={
-                  handleCloseDetails
+              <h2>
+                {
+                  selectedBooking.guestName
                 }
-                aria-label="Close booking details"
+              </h2>
+
+              <p>
+                {
+                  selectedBooking.id
+                }
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                setSelectedBooking(
+                  null
+                )
+              }
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="booking-detail-grid">
+            <div>
+              <span>
+                Source
+              </span>
+
+              <strong>
+                {
+                  selectedBooking.source
+                }
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                Check-in
+              </span>
+
+              <strong>
+                {formatDate(
+                  selectedBooking.checkIn
+                )}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                Check-out
+              </span>
+
+              <strong>
+                {formatDate(
+                  selectedBooking.checkOut
+                )}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                Booked guests
+              </span>
+
+              <strong>
+                {
+                  selectedBooking.bookedGuests
+                }
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                Actual guests
+              </span>
+
+              <strong
+                className={
+                  selectedBooking.actualGuests !==
+                    undefined &&
+                    selectedBooking.actualGuests >
+                    selectedBooking.bookedGuests
+                    ? "danger-text"
+                    : ""
+                }
               >
-                ×
-              </button>
-
+                {
+                  selectedBooking.actualGuests ??
+                  "Not recorded"
+                }
+              </strong>
             </div>
 
-            {/* DETAIL GRID */}
+            <div>
+              <span>
+                Booking amount
+              </span>
 
-            <div className="booking-detail-grid">
+              <strong>
+                {formatCurrency(
+                  selectedBooking.amount
+                )}
+              </strong>
+            </div>
 
-              <div className="detail-card">
-                <span>
-                  Booking source
-                </span>
+            <div>
+              <span>
+                Payment
+              </span>
 
-                <strong>
-                  {selectedBooking.source}
-                </strong>
-              </div>
+              <strong>
+                {
+                  selectedBooking.paymentStatus
+                }
+              </strong>
+            </div>
 
-              <div className="detail-card">
-                <span>
-                  Status
-                </span>
+            <div>
+              <span>
+                Status
+              </span>
 
-                <strong>
-                  {selectedBooking.status}
-                </strong>
-              </div>
+              <strong>
+                {
+                  selectedBooking.status
+                }
+              </strong>
+            </div>
+          </div>
 
-              <div className="detail-card">
-                <span>
-                  Check-in
-                </span>
+          {selectedBooking.actualGuests !==
+            undefined &&
+            selectedBooking.actualGuests >
+            selectedBooking.bookedGuests && (
+              <div className="occupancy-decision">
+                <div className="occupancy-decision-header">
+                  <div>
+                    <span className="eyebrow">
+                      OWNER DECISION
+                    </span>
 
-                <strong>
-                  {formatDate(
-                    selectedBooking.checkIn
-                  )}
-                </strong>
-              </div>
+                    <h3>
+                      Guest count mismatch
+                    </h3>
 
-              <div className="detail-card">
-                <span>
-                  Check-out
-                </span>
+                    <p>
+                      {
+                        selectedBooking.bookedGuests
+                      }{" "}
+                      guests were booked, but{" "}
+                      {
+                        selectedBooking.actualGuests
+                      }{" "}
+                      guests are recorded.
+                    </p>
+                  </div>
 
-                <strong>
-                  {formatDate(
-                    selectedBooking.checkOut
-                  )}
-                </strong>
-              </div>
-
-              <div className="detail-card">
-                <span>
-                  Booked guests
-                </span>
-
-                <strong>
-                  {selectedBooking.bookedGuests}
-                </strong>
-              </div>
-
-              <div className="detail-card">
-                <span>
-                  Actual guests
-                </span>
-
-                <strong>
-                  {selectedBooking.actualGuests ??
-                    "Not recorded"}
-                </strong>
-              </div>
-
-              <div className="detail-card">
-                <span>
-                  Booking amount
-                </span>
-
-                <strong>
-                  {formatCurrency(
-                    selectedBooking.amount
-                  )}
-                </strong>
-              </div>
-
-              <div className="detail-card">
-                <span>
-                  Amount received
-                </span>
-
-                <strong>
-                  {formatCurrency(
-                    selectedBooking.amountReceived ??
-                    0
-                  )}
-                </strong>
-              </div>
-
-              <div className="detail-card">
-                <span>
-                  Balance due
-                </span>
-
-                <strong>
-                  {formatCurrency(
-                    getBalanceDue(
-                      selectedBooking
-                    )
-                  )}
-                </strong>
-              </div>
-
-              {selectedBooking.guestPhone && (
-                <div className="detail-card">
-
-                  <span>
-                    Guest phone
+                  <span
+                    className={`decision-status ${selectedBooking.occupancyDecision ===
+                        "Approved extra charge"
+                        ? "approved"
+                        : selectedBooking.occupancyDecision ===
+                          "No additional charge"
+                          ? "no-charge"
+                          : selectedBooking.occupancyDecision ===
+                            "Keep under review"
+                            ? "review"
+                            : "pending"
+                      }`}
+                  >
+                    {selectedBooking.occupancyDecision ??
+                      "Pending"}
                   </span>
-
-                  <strong>
-                    {selectedBooking.guestPhone}
-                  </strong>
-
                 </div>
-              )}
 
-            </div>
+                {(!selectedBooking.occupancyDecision ||
+                  selectedBooking.occupancyDecision ===
+                  "Pending") && (
+                    <div className="occupancy-decision-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                    onClick={() => {
+                      const decision =
+                        "Approved extra charge";
 
-            {/* GUEST MISMATCH */}
+                      businessStore.updateOccupancyDecision(
+                        selectedBooking.id,
+                        decision,
+                        0
+                      );
 
-            {selectedBooking.actualGuests !==
-              undefined &&
-              selectedBooking.actualGuests >
-              selectedBooking.bookedGuests && (
-                <div className="booking-exception">
+                      setSelectedBooking({
+                        ...selectedBooking,
+                        occupancyDecision: decision,
+                        additionalOccupancyCharge: 0,
+                        occupancyDecisionAt:
+                          new Date().toISOString()
+                      });
+                    }}
+                      >
+                        Approve extra charge
+                      </button>
 
-                  <strong>
-                    Guest count mismatch
-                  </strong>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                    onClick={() => {
+                      const decision =
+                        "No additional charge";
 
-                  <p>
-                    Booked for{" "}
-                    {selectedBooking.bookedGuests}{" "}
-                    guests, but{" "}
-                    {selectedBooking.actualGuests}{" "}
-                    actual guests are recorded.
-                  </p>
+                      businessStore.updateOccupancyDecision(
+                        selectedBooking.id,
+                        decision
+                      );
 
-                </div>
-              )}
+                      setSelectedBooking({
+                        ...selectedBooking,
+                        occupancyDecision: decision,
+                        additionalOccupancyCharge: 0,
+                        occupancyDecisionAt:
+                          new Date().toISOString()
+                      });
+                    }}
+                      >
+                        No additional charge
+                      </button>
 
-            {/* NOTES */}
+                      <button
+                        type="button"
+                        className="secondary-button"
+                    onClick={() => {
+                      const decision =
+                        "Keep under review";
 
-            {selectedBooking.notes && (
-              <div className="booking-notes">
+                      businessStore.updateOccupancyDecision(
+                        selectedBooking.id,
+                        decision
+                      );
 
-                <h3>
-                  Booking notes
-                </h3>
+                      setSelectedBooking({
+                        ...selectedBooking,
+                        occupancyDecision: decision,
+                        additionalOccupancyCharge: 0,
+                        occupancyDecisionAt:
+                          new Date().toISOString()
+                      });
+                    }}
+                      >
+                        Keep under review
+                      </button>
+                    </div>
+                  )}
 
-                <p>
-                  {selectedBooking.notes}
-                </p>
+                {selectedBooking.occupancyDecision &&
+                  selectedBooking.occupancyDecision !==
+                  "Pending" && (
+                    <div className="decision-completed">
+                      <strong>
+                        Owner decision recorded
+                      </strong>
 
+                      <span>
+                        {
+                          selectedBooking.occupancyDecision
+                        }
+                      </span>
+
+                      {selectedBooking.occupancyDecisionAt && (
+                        <small>
+                          {new Date(
+                            selectedBooking.occupancyDecisionAt
+                          ).toLocaleString(
+                            "en-IN"
+                          )}
+                        </small>
+                      )}
+                    </div>
+                  )}
               </div>
             )}
 
-            {/* WORKFLOW ACTIONS */}
+          {selectedBooking.actualGuests !==
+            undefined &&
+            selectedBooking.actualGuests >
+            selectedBooking.bookedGuests && (
+              <div className="booking-warning">
+                <strong>
+                  Guest count
+                  mismatch
+                </strong>
 
-            <div className="booking-actions">
+                <p>
+                  Booked for{" "}
+                  {
+                    selectedBooking.bookedGuests
+                  }{" "}
+                  guests but{" "}
+                  {
+                    selectedBooking.actualGuests
+                  }{" "}
+                  actual guests
+                  are recorded.
+                  Owner review is
+                  required before
+                  applying an
+                  additional
+                  occupancy charge.
+                </p>
+              </div>
+            )}
 
-              {selectedBooking.status ===
-                "Confirmed" && (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() =>
-                      handleWorkflowTransition(
-                        "Check-in"
-                      )
-                    }
-                  >
-                    Check-in
-                  </button>
-                )}
+          {selectedBooking.notes && (
+            <div className="booking-notes">
+              <span>
+                Notes
+              </span>
 
-              {selectedBooking.status ===
-                "Check-in" && (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() =>
-                      handleWorkflowTransition(
-                        "In stay"
-                      )
-                    }
-                  >
-                    Mark in stay
-                  </button>
-                )}
-
-              {selectedBooking.status ===
-                "In stay" && (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() =>
-                      handleWorkflowTransition(
-                        "Checkout"
-                      )
-                    }
-                  >
-                    Checkout
-                  </button>
-                )}
-
-              {selectedBooking.status ===
-                "Checkout" && (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() =>
-                      handleWorkflowTransition(
-                        "Completed"
-                      )
-                    }
-                  >
-                    Complete stay
-                  </button>
-                )}
-
+              <p>
+                {
+                  selectedBooking.notes
+                }
+              </p>
             </div>
+          )}
 
+          <div className="booking-detail-actions">
+            {nextStatus &&
+              nextStatusLabel && (
+                <button
+                  type="button"
+                  className={
+                    nextStatus ===
+                      "Completed"
+                      ? "primary-button"
+                      : "secondary-button"
+                  }
+                  onClick={() =>
+                    updateBookingStatus(
+                      nextStatus
+                    )
+                  }
+                >
+                  {
+                    nextStatusLabel
+                  }
+                </button>
+              )}
+
+            {selectedBooking.status !==
+              "Completed" &&
+              selectedBooking.status !==
+              "Cancelled" && (
+                <button
+                  type="button"
+                  className="secondary-button danger-button"
+                  onClick={
+                    handleCancelBooking
+                  }
+                >
+                  Cancel booking
+                </button>
+              )}
           </div>
-
         </div>
       )}
-
     </section>
   );
 };

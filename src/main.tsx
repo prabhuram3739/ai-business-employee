@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
@@ -24,9 +24,16 @@ import {
   getModuleItems,
   workflowSummary
 } from "./core/workflow";
+import {
+  buildBookingExceptions
+} from "./core/ruleEngine";
+
+import { businessStore } from "./core/store";
 
 import { adapters } from "./adapters/adapterRegistry";
 
+import ExceptionCenter from "./components/ExceptionCenter";
+import type { BusinessException } from "./core/ruleEngine";
 import {
   mmvkFoodExpenseCategories,
   homestayBookings
@@ -65,10 +72,14 @@ type DashboardProps = {
   items: WorkItem[];
   resolve: (id: string) => void;
   open: number;
+  liveHomestayExceptions: BusinessException[];
+  onExceptionReview: (entityId: string) => void;
 };
 
 type ModulePageProps = {
   module: BusinessModule;
+  workItems: WorkItem[];
+  reviewBookingId: string | null;
 };
 
 type IntegrationPanelProps = {
@@ -89,7 +100,21 @@ const App = (): React.JSX.Element => {
     useState<View>("dashboard");
 
   const [items, setItems] =
-    useState<WorkItem[]>(workItems);
+    useState<WorkItem[]>(
+      businessStore.getState().workItems
+    );
+
+  useEffect(() => {
+    setItems(
+      businessStore.getState().workItems
+    );
+
+    return businessStore.subscribe(() => {
+      setItems(
+        businessStore.getState().workItems
+      );
+    });
+  }, []);
 
   const module = useMemo(
     () =>
@@ -100,18 +125,70 @@ const App = (): React.JSX.Element => {
     [view]
   );
 
-  const open = items.length;
+  const [bookings, setBookings] = useState(
+    businessStore.getState().bookings
+  );
+
+  useEffect(() => {
+    setBookings(
+      businessStore.getState().bookings
+    );
+
+    return businessStore.subscribe(() => {
+      setBookings(
+        businessStore.getState().bookings
+      );
+    });
+  }, []);
+
+  const homestayModule = useMemo(
+    () =>
+      businessModules.find(
+        businessModule =>
+          businessModule.id === "homestay"
+      ),
+    []
+  );
+
+  const liveHomestayExceptions =
+    useMemo(() => {
+      if (!homestayModule) {
+        return [];
+      }
+
+      return buildBookingExceptions(
+        homestayModule,
+        bookings
+      );
+    }, [
+      homestayModule,
+      bookings
+    ]);
+
+  const totalOpenExceptions =
+    items.length +
+    liveHomestayExceptions.length;
+
+  const open = totalOpenExceptions;
+
+  const [reviewBookingId, setReviewBookingId] =
+    useState<string | null>(null);
 
   const resolve = (id: string): void => {
-    setItems(currentItems =>
-      currentItems.filter(
-        item => item.id !== id
-      )
-    );
+    businessStore.resolveWorkItem(id);
   };
 
   const handleRefresh = (): void => {
-    setItems([...workItems]);
+    setItems([
+      ...businessStore.getState().workItems
+    ]);
+  };
+
+  const handleExceptionReview = (
+    entityId: string
+  ): void => {
+    setReviewBookingId(entityId);
+    setView("homestay");
   };
 
   return (
@@ -282,13 +359,17 @@ const App = (): React.JSX.Element => {
         ) : module ? (
           <ModulePage
             module={module}
+              workItems={items}
+              reviewBookingId={reviewBookingId}
           />
         ) : (
-          <Dashboard
-            items={items}
-            resolve={resolve}
-            open={open}
-          />
+              <Dashboard
+                items={items}
+                resolve={resolve}
+                open={open}
+                liveHomestayExceptions={liveHomestayExceptions}
+                onExceptionReview={handleExceptionReview}
+              />
         )}
 
       </main>
@@ -304,7 +385,9 @@ const App = (): React.JSX.Element => {
 const Dashboard = ({
   items,
   resolve,
-  open
+  open,
+  liveHomestayExceptions,
+  onExceptionReview
 }: DashboardProps): React.JSX.Element => {
   return (
     <>
@@ -349,7 +432,10 @@ const Dashboard = ({
         </div>
 
       </section>
-
+      <ExceptionCenter
+        exceptions={liveHomestayExceptions}
+        onReview={onExceptionReview}
+      />
       <section className="cards four">
 
         {businessModules.map(
@@ -573,13 +659,26 @@ const Dashboard = ({
 /* -------------------------------------------------------------------------- */
 
 const ModulePage = ({
-  module
+  module,
+  workItems,
+  reviewBookingId
 }: ModulePageProps): React.JSX.Element => {
 
-  const [
-    tab,
-    setTab
-  ] = useState<ModuleTab>("overview");
+  const [tab, setTab] = useState<
+    "overview" | "bookings" | "workflow" | "integrations"
+  >("overview");
+
+  useEffect(() => {
+    if (
+      module.id === "homestay" &&
+      reviewBookingId
+    ) {
+      setTab("bookings");
+    }
+  }, [
+    module.id,
+    reviewBookingId
+  ]);
 
   const items = useMemo(
     () =>
@@ -849,9 +948,10 @@ const ModulePage = ({
 
       {tab === "bookings" &&
         module.id === "homestay" && (
-          <HomestayBookings
-            bookings={homestayBookings}
-          />
+        <HomestayBookings
+          bookings={businessStore.getState().bookings}
+          initialSelectedBookingId={reviewBookingId}
+        />
         )}
 
       {/* Workflow */}

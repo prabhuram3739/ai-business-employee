@@ -77,6 +77,12 @@ export type PaymentStatus =
   | "Part paid"
   | "Paid";
 
+export type OccupancyDecision =
+  | "Pending"
+  | "Approved extra charge"
+  | "No additional charge"
+  | "Keep under review"; 
+
 export type HomestayBooking = {
   id: string;
   guestName: string;
@@ -99,4 +105,8 @@ export type HomestayBooking = {
 
   guestPhone?: string;
   notes?: string;
+
+  occupancyDecision?: OccupancyDecision;
+  additionalOccupancyCharge?: number;
+  occupancyDecisionAt?: string;
 };
