@@ -69,16 +69,23 @@ export const homestayBookings: HomestayBooking[] = [
     source: "Direct",
     checkIn: "2026-08-23",
     checkOut: "2026-08-24",
-    bookedGuests: 4,
-    actualGuests: 6,
-    amount: 4900,
-    paymentStatus: "Paid",
-    amountReceived: 4900,
-    status: "Confirmed",
-    otaCommission: 0,
-    netAmount: 4900,
-    occupancyDecision: "Pending",
 
+    bookedGuests: 4,
+    actualGuests: 7,
+
+    amount: 4900,
+    amountReceived: 4900,
+
+    paymentStatus: "Part paid",
+
+    status: "Confirmed",
+
+    occupancyDecision:
+      "Approved extra charge",
+
+    additionalOccupancyCharge: 1500,
+
+    // Keep your existing other fields here.
   },
   {
     id: "HS-2026-005",

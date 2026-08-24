@@ -83,6 +83,21 @@ export type OccupancyDecision =
   | "No additional charge"
   | "Keep under review"; 
 
+export type PaymentMethod =
+  | "Cash"
+  | "GPay"
+  | "Bank Transfer"
+  | "UPI"
+  | "Other";
+
+export type PaymentRecord = {
+  id: string;
+  amount: number;
+  method: PaymentMethod;
+  receivedAt: string;
+  note?: string;
+};
+
 export type HomestayBooking = {
   id: string;
   guestName: string;
@@ -97,6 +112,7 @@ export type HomestayBooking = {
   amount: number;
   paymentStatus: PaymentStatus;
   amountReceived?: number;
+  paymentHistory?: PaymentRecord[];
 
   status: BookingStatus;
 
@@ -106,7 +122,22 @@ export type HomestayBooking = {
   guestPhone?: string;
   notes?: string;
 
-  occupancyDecision?: OccupancyDecision;
+  /**
+     * Owner decision for additional occupancy.
+     */
+  occupancyDecision?:
+  | "Pending"
+  | "Approved extra charge"
+  | "No additional charge"
+  | "Keep under review";
+
+  /**
+   * Amount approved by owner for extra occupancy.
+   */
   additionalOccupancyCharge?: number;
+
+  /**
+   * Timestamp when owner recorded the decision.
+   */
   occupancyDecisionAt?: string;
 };

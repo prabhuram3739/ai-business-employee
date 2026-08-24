@@ -11,6 +11,10 @@ import type {
   PaymentStatus
 } from "../core/types";
 
+import {
+  calculateExtraGuestCharge
+} from "../core/pricing";
+
 import { businessStore } from "../core/store";
 
 type Props = {
@@ -26,11 +30,32 @@ type BookingFormState = {
   bookedGuests: string;
   actualGuests: string;
   amount: string;
+  amountReceived: string;
   paymentStatus: PaymentStatus;
   status: BookingStatus;
   guestPhone: string;
   notes: string;
 };
+
+type PaymentMethod =
+  | "GPay"
+  | "UPI"
+  | "Cash"
+  | "Bank Transfer"
+  | "Other";
+
+type PaymentRecord = {
+  id: string;
+  amount: number;
+  method: PaymentMethod;
+  note?: string;
+  receivedAt: string;
+};
+
+type BookingWithPayments =
+  HomestayBooking & {
+    paymentHistory?: PaymentRecord[];
+  };
 
 const createEmptyForm = (): BookingFormState => ({
   guestName: "",
@@ -40,6 +65,7 @@ const createEmptyForm = (): BookingFormState => ({
   bookedGuests: "4",
   actualGuests: "",
   amount: "0",
+  amountReceived: "0",
   paymentStatus: "Pending",
   status: "Quoted",
   guestPhone: "",
@@ -122,12 +148,43 @@ const formatDate = (
     return "-";
   }
 
-  return new Date(`${date}T00:00:00`).toLocaleDateString(
+  return new Date(
+    `${date}T00:00:00`
+  ).toLocaleDateString(
     "en-IN",
     {
       day: "2-digit",
       month: "short",
       year: "numeric"
+    }
+  );
+};
+
+const formatDateTime = (
+  value: string
+): string => {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return value;
+  }
+
+  return date.toLocaleString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
     }
   );
 };
@@ -187,24 +244,59 @@ const getNextStatusLabel = (
   }
 };
 
+const createPaymentId = (): string => {
+  return `PAY-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 7)
+    .toUpperCase()}`;
+};
+
 const HomestayBookings = ({
   bookings,
   initialSelectedBookingId = null
 }: Props): React.JSX.Element => {
-  const [showNewBooking, setShowNewBooking] =
-    useState(false);
+  const [
+    showNewBooking,
+    setShowNewBooking
+  ] = useState(false);
 
-  const [selectedBooking, setSelectedBooking] =
-    useState<HomestayBooking | null>(null);
+  const [
+    selectedBooking,
+    setSelectedBooking
+  ] = useState<HomestayBooking | null>(
+    null
+  );
 
-  const [form, setForm] =
-    useState<BookingFormState>(
-      createEmptyForm()
-    );
+  const [
+    form,
+    setForm
+  ] = useState<BookingFormState>(
+    createEmptyForm()
+  );
 
   /*
-   * When Exception Center sends us a booking ID,
-   * automatically open that booking.
+   * Payment entry state.
+   */
+  const [
+    paymentAmount,
+    setPaymentAmount
+  ] = useState("");
+
+  const [
+    paymentMethod,
+    setPaymentMethod
+  ] = useState<PaymentMethod>(
+    "GPay"
+  );
+
+  const [
+    paymentNote,
+    setPaymentNote
+  ] = useState("");
+
+  /*
+   * Open a booking requested by the
+   * Exception Center.
    */
   useEffect(() => {
     if (!initialSelectedBookingId) {
@@ -218,13 +310,121 @@ const HomestayBookings = ({
     );
 
     if (booking) {
-      setSelectedBooking(booking);
+      setSelectedBooking(
+        booking
+      );
     }
   }, [
     initialSelectedBookingId,
     bookings
   ]);
 
+  /*
+   * Keep the selected booking synchronized
+   * with store changes.
+   */
+  useEffect(() => {
+    if (!selectedBooking) {
+      return;
+    }
+
+    const latestBooking =
+      bookings.find(
+        booking =>
+          booking.id ===
+          selectedBooking.id
+      );
+
+    if (
+      latestBooking &&
+      JSON.stringify(
+        latestBooking
+      ) !==
+      JSON.stringify(
+        selectedBooking
+      )
+    ) {
+      setSelectedBooking(
+        latestBooking
+      );
+    }
+  }, [
+    bookings,
+    selectedBooking
+  ]);
+
+  /*
+   * Reset payment entry whenever the
+   * selected booking changes.
+   */
+  useEffect(() => {
+    setPaymentAmount("");
+    setPaymentMethod("GPay");
+    setPaymentNote("");
+  }, [
+    selectedBooking?.id
+  ]);
+
+  /*
+   * Repair old approved occupancy decisions
+   * that were persisted with ₹0.
+   *
+   * Example:
+   *
+   * Booked: 4
+   * Actual: 7
+   * Extra: 3
+   * Rate: ₹500
+   * Correct charge: ₹1,500
+   */
+  useEffect(() => {
+    if (!selectedBooking) {
+      return;
+    }
+
+    if (
+      selectedBooking.occupancyDecision !==
+      "Approved extra charge" ||
+      selectedBooking.additionalOccupancyCharge !==
+      0
+    ) {
+      return;
+    }
+
+    const calculatedCharge =
+      calculateExtraGuestCharge(
+        selectedBooking
+      );
+
+    if (
+      calculatedCharge.amount <= 0
+    ) {
+      return;
+    }
+
+    businessStore.updateOccupancyDecision(
+      selectedBooking.id,
+      "Approved extra charge",
+      calculatedCharge.amount
+    );
+
+    setSelectedBooking(
+      previous =>
+        previous
+          ? {
+            ...previous,
+            additionalOccupancyCharge:
+              calculatedCharge.amount
+          }
+          : previous
+    );
+  }, [
+    selectedBooking
+  ]);
+
+  /*
+   * Summary cards.
+   */
   const totalBookings =
     bookings.length;
 
@@ -251,6 +451,9 @@ const HomestayBookings = ({
         booking.bookedGuests
     ).length;
 
+  /*
+   * Keep reservations ordered by check-in.
+   */
   const sortedBookings =
     useMemo(
       () =>
@@ -262,6 +465,164 @@ const HomestayBookings = ({
         ),
       [bookings]
     );
+
+  /*
+   * Pricing engine.
+   */
+  const extraGuestCharge =
+    useMemo(
+      () =>
+        selectedBooking
+          ? calculateExtraGuestCharge(
+            selectedBooking
+          )
+          : null,
+      [selectedBooking]
+    );
+
+  /*
+   * Complete booking financial picture.
+   */
+  const financialSummary =
+    useMemo(() => {
+      if (!selectedBooking) {
+        return null;
+      }
+
+      const originalAmount =
+        selectedBooking.amount ??
+        0;
+
+      const calculatedExtraCharge =
+        extraGuestCharge?.amount ??
+        0;
+
+      const approvedExtraCharge =
+        selectedBooking
+          .additionalOccupancyCharge &&
+          selectedBooking
+            .additionalOccupancyCharge >
+          0
+          ? selectedBooking
+            .additionalOccupancyCharge
+          : selectedBooking.occupancyDecision ===
+            "Approved extra charge"
+            ? calculatedExtraCharge
+            : 0;
+
+      const totalBookingValue =
+        originalAmount +
+        approvedExtraCharge;
+
+      const amountReceived =
+        selectedBooking.amountReceived ??
+        (selectedBooking.paymentStatus ===
+          "Paid"
+          ? originalAmount
+          : 0);
+
+      const balanceDue =
+        Math.max(
+          totalBookingValue -
+          amountReceived,
+          0
+        );
+
+      const paymentStatus: PaymentStatus =
+        balanceDue <= 0
+          ? "Paid"
+          : amountReceived > 0
+            ? "Part paid"
+            : "Pending";
+
+      return {
+        originalAmount,
+        approvedExtraCharge,
+        totalBookingValue,
+        amountReceived,
+        balanceDue,
+        paymentStatus
+      };
+    }, [
+      selectedBooking,
+      extraGuestCharge
+    ]);
+
+  /*
+   * Payment history.
+   *
+   * The existing HomestayBooking type does not
+   * currently contain paymentHistory, so this is
+   * intentionally handled through the extended
+   * local type.
+   */
+  const selectedBookingWithPayments =
+    selectedBooking as
+    | BookingWithPayments
+    | null;
+
+  const paymentHistory =
+    useMemo<PaymentRecord[]>(() => {
+      if (!selectedBooking) {
+        return [];
+      }
+
+      const existing =
+        selectedBookingWithPayments
+          ?.paymentHistory;
+
+      if (
+        Array.isArray(existing) &&
+        existing.length > 0
+      ) {
+        return [...existing].sort(
+          (a, b) =>
+            new Date(
+              b.receivedAt
+            ).getTime() -
+            new Date(
+              a.receivedAt
+            ).getTime()
+        );
+      }
+
+      /*
+       * Backward compatibility:
+       *
+       * Older bookings only stored amountReceived
+       * and did not have individual payment records.
+       *
+       * Show that amount as an existing payment
+       * rather than pretending the booking has no
+       * payment history.
+       */
+      const existingAmount =
+        Number(
+          selectedBooking.amountReceived ??
+          0
+        );
+
+      if (
+        existingAmount > 0
+      ) {
+        return [
+          {
+            id: "LEGACY-PAYMENT",
+            amount: existingAmount,
+            method: "Other",
+            note:
+              "Existing payment recorded before payment history was enabled.",
+            receivedAt:
+              new Date().toISOString()
+          }
+        ];
+      }
+
+      return [];
+    }, [
+      selectedBooking,
+      selectedBookingWithPayments
+    ]);
 
   const updateForm = <
     K extends keyof BookingFormState
@@ -275,86 +636,131 @@ const HomestayBookings = ({
     }));
   };
 
-  const handleCreateBooking = (): void => {
-    if (
-      !form.guestName.trim() ||
-      !form.checkIn ||
-      !form.checkOut ||
-      !form.bookedGuests
-    ) {
-      return;
-    }
+  /*
+   * Create booking.
+   */
+  const handleCreateBooking =
+    (): void => {
+      if (
+        !form.guestName.trim() ||
+        !form.checkIn ||
+        !form.checkOut ||
+        !form.bookedGuests
+      ) {
+        return;
+      }
 
-    const bookingNumber =
-      String(
-        bookings.length + 1
-      ).padStart(3, "0");
+      const bookingNumber =
+        String(
+          bookings.length + 1
+        ).padStart(3, "0");
 
-    const booking: HomestayBooking = {
-      id: `HS-${new Date()
-        .getFullYear()}-${bookingNumber}`,
+      const initialAmountReceived =
+        Number(
+          form.amountReceived
+        ) || 0;
 
-      guestName:
-        form.guestName.trim(),
+      const booking: HomestayBooking =
+        {
+          id: `HS-${new Date()
+            .getFullYear()}-${bookingNumber}`,
 
-      source:
-        form.source,
+          guestName:
+            form.guestName.trim(),
 
-      checkIn:
-        form.checkIn,
+          source:
+            form.source,
 
-      checkOut:
-        form.checkOut,
+          checkIn:
+            form.checkIn,
 
-      bookedGuests:
-        Number(form.bookedGuests),
+          checkOut:
+            form.checkOut,
 
-      ...(form.actualGuests
-        ? {
-          actualGuests:
+          bookedGuests:
             Number(
-              form.actualGuests
-            )
-        }
-        : {}),
+              form.bookedGuests
+            ),
 
-      amount:
-        Number(form.amount) || 0,
+          ...(form.actualGuests
+            ? {
+              actualGuests:
+                Number(
+                  form.actualGuests
+                )
+            }
+            : {}),
 
-      paymentStatus:
-        form.paymentStatus,
+          amount:
+            Number(form.amount) ||
+            0,
 
-      status:
-        form.status,
+          amountReceived:
+            initialAmountReceived,
 
-      ...(form.guestPhone.trim()
-        ? {
-          guestPhone:
-            form.guestPhone.trim()
-        }
-        : {}),
+          paymentStatus:
+            form.paymentStatus,
 
-      ...(form.notes.trim()
-        ? {
-          notes:
-            form.notes.trim()
-        }
-        : {})
+          status:
+            form.status,
+
+          ...(form.guestPhone.trim()
+            ? {
+              guestPhone:
+                form.guestPhone.trim()
+            }
+            : {}),
+
+          ...(form.notes.trim()
+            ? {
+              notes:
+                form.notes.trim()
+            }
+            : {}),
+
+          /*
+           * If an initial amount was entered,
+           * preserve it in payment history.
+           *
+           * Cast is used because the shared
+           * HomestayBooking type has not yet
+           * formally declared paymentHistory.
+           */
+          ...(initialAmountReceived > 0
+            ? {
+              paymentHistory: [
+                {
+                  id: createPaymentId(),
+                  amount:
+                    initialAmountReceived,
+                  method:
+                    "Other" as PaymentMethod,
+                  note:
+                    "Initial payment recorded when booking was created.",
+                  receivedAt:
+                    new Date().toISOString()
+                }
+              ]
+            }
+            : {})
+        } as HomestayBooking;
+
+      businessStore.addBooking(
+        booking
+      );
+
+      setForm(
+        createEmptyForm()
+      );
+
+      setShowNewBooking(
+        false
+      );
     };
 
-    businessStore.addBooking(
-      booking
-    );
-
-    setForm(
-      createEmptyForm()
-    );
-
-    setShowNewBooking(
-      false
-    );
-  };
-
+  /*
+   * Update booking workflow status.
+   */
   const updateBookingStatus = (
     status: BookingStatus
   ): void => {
@@ -364,10 +770,11 @@ const HomestayBookings = ({
 
     businessStore.updateBooking(
       selectedBooking.id,
-      booking => ({
-        ...booking,
-        status
-      })
+      booking =>
+        ({
+          ...booking,
+          status
+        }) as HomestayBooking
     );
 
     setSelectedBooking(
@@ -381,11 +788,181 @@ const HomestayBookings = ({
     );
   };
 
-  const handleCancelBooking = (): void => {
-    updateBookingStatus(
-      "Cancelled"
+  const handleCancelBooking =
+    (): void => {
+      updateBookingStatus(
+        "Cancelled"
+      );
+    };
+
+  /*
+   * Owner occupancy decision.
+   */
+  const handleOccupancyDecision = (
+    decision:
+      | "Approved extra charge"
+      | "No additional charge"
+      | "Keep under review"
+  ): void => {
+    if (!selectedBooking) {
+      return;
+    }
+
+    const calculatedCharge =
+      extraGuestCharge?.amount ??
+      0;
+
+    const additionalCharge =
+      decision ===
+        "Approved extra charge"
+        ? calculatedCharge
+        : 0;
+
+    const decisionAt =
+      new Date().toISOString();
+
+    businessStore.updateOccupancyDecision(
+      selectedBooking.id,
+      decision,
+      additionalCharge
+    );
+
+    setSelectedBooking(
+      previous =>
+        previous
+          ? {
+            ...previous,
+            occupancyDecision:
+              decision,
+            additionalOccupancyCharge:
+              additionalCharge,
+            occupancyDecisionAt:
+              decisionAt
+          }
+          : previous
     );
   };
+
+  /*
+   * Record a new payment.
+   */
+  const handleRecordPayment =
+    (): void => {
+      if (
+        !selectedBooking ||
+        !financialSummary
+      ) {
+        return;
+      }
+
+      const amount =
+        Number(
+          paymentAmount
+        );
+
+      if (
+        !Number.isFinite(amount) ||
+        amount <= 0
+      ) {
+        return;
+      }
+
+      if (
+        amount >
+        financialSummary.balanceDue
+      ) {
+        return;
+      }
+
+      const now =
+        new Date().toISOString();
+
+      const newPayment:
+        PaymentRecord = {
+        id: createPaymentId(),
+        amount,
+        method:
+          paymentMethod,
+        note:
+          paymentNote.trim() ||
+          undefined,
+        receivedAt: now
+      };
+
+      const currentHistory =
+        Array.isArray(
+          selectedBookingWithPayments
+            ?.paymentHistory
+        )
+          ? [
+            ...(selectedBookingWithPayments
+              ?.paymentHistory ?? [])
+          ]
+          : [];
+
+      const updatedHistory = [
+        ...currentHistory,
+        newPayment
+      ];
+
+      const newAmountReceived =
+        financialSummary.amountReceived +
+        amount;
+
+      const newBalance =
+        Math.max(
+          financialSummary.totalBookingValue -
+          newAmountReceived,
+          0
+        );
+
+      const newPaymentStatus:
+        PaymentStatus =
+        newBalance <= 0
+          ? "Paid"
+          : newAmountReceived > 0
+            ? "Part paid"
+            : "Pending";
+
+      businessStore.updateBooking(
+        selectedBooking.id,
+        booking =>
+          ({
+            ...booking,
+
+            amountReceived:
+              newAmountReceived,
+
+            paymentStatus:
+              newPaymentStatus,
+
+            paymentHistory:
+              updatedHistory
+          }) as HomestayBooking
+      );
+
+      setSelectedBooking(
+        previous =>
+          previous
+            ? ({
+              ...previous,
+
+              amountReceived:
+                newAmountReceived,
+
+              paymentStatus:
+                newPaymentStatus,
+
+              paymentHistory:
+                updatedHistory
+            } as HomestayBooking)
+            : previous
+      );
+
+      setPaymentAmount("");
+      setPaymentMethod("GPay");
+      setPaymentNote("");
+    };
 
   const nextStatus =
     selectedBooking
@@ -403,8 +980,15 @@ const HomestayBookings = ({
 
   return (
     <section className="homestay-bookings">
+
+      {/* =====================================================
+          HEADER
+          ===================================================== */}
+
       <div className="module-heading">
+
         <div>
+
           <p className="eyebrow">
             MMVK HOMESTAY
           </p>
@@ -418,6 +1002,7 @@ const HomestayBookings = ({
             reservations from one
             place.
           </p>
+
         </div>
 
         <button
@@ -432,12 +1017,21 @@ const HomestayBookings = ({
         >
           + New booking
         </button>
+
       </div>
+
+
+      {/* =====================================================
+          NEW BOOKING FORM
+          ===================================================== */}
 
       {showNewBooking && (
         <div className="booking-form-card">
+
           <div className="section-head">
+
             <div>
+
               <h2>
                 New booking
               </h2>
@@ -446,12 +1040,16 @@ const HomestayBookings = ({
                 Create a reservation
                 for MMVK Homestay
               </p>
+
             </div>
+
           </div>
 
           <div className="booking-form-grid">
+
             <label>
               Guest name *
+
               <input
                 type="text"
                 value={
@@ -461,15 +1059,16 @@ const HomestayBookings = ({
                 onChange={event =>
                   updateForm(
                     "guestName",
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
             </label>
 
+
             <label>
               Booking source
+
               <select
                 value={
                   form.source
@@ -504,8 +1103,10 @@ const HomestayBookings = ({
               </select>
             </label>
 
+
             <label>
               Check-in *
+
               <input
                 type="date"
                 value={
@@ -514,15 +1115,16 @@ const HomestayBookings = ({
                 onChange={event =>
                   updateForm(
                     "checkIn",
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
             </label>
 
+
             <label>
               Check-out *
+
               <input
                 type="date"
                 value={
@@ -531,15 +1133,16 @@ const HomestayBookings = ({
                 onChange={event =>
                   updateForm(
                     "checkOut",
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
             </label>
 
+
             <label>
               Booked guests *
+
               <input
                 type="number"
                 min="1"
@@ -549,15 +1152,16 @@ const HomestayBookings = ({
                 onChange={event =>
                   updateForm(
                     "bookedGuests",
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
             </label>
 
+
             <label>
               Actual guests
+
               <input
                 type="number"
                 min="0"
@@ -568,15 +1172,16 @@ const HomestayBookings = ({
                 onChange={event =>
                   updateForm(
                     "actualGuests",
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
             </label>
 
+
             <label>
               Booking amount
+
               <input
                 type="number"
                 min="0"
@@ -586,15 +1191,35 @@ const HomestayBookings = ({
                 onChange={event =>
                   updateForm(
                     "amount",
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
             </label>
 
+
+            <label>
+              Amount received
+
+              <input
+                type="number"
+                min="0"
+                value={
+                  form.amountReceived
+                }
+                onChange={event =>
+                  updateForm(
+                    "amountReceived",
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+
+
             <label>
               Payment status
+
               <select
                 value={
                   form.paymentStatus
@@ -621,8 +1246,10 @@ const HomestayBookings = ({
               </select>
             </label>
 
+
             <label>
               Booking status
+
               <select
                 value={
                   form.status
@@ -646,11 +1273,33 @@ const HomestayBookings = ({
                 <option value="Confirmed">
                   Confirmed
                 </option>
+
+                <option value="Check-in">
+                  Check-in
+                </option>
+
+                <option value="In stay">
+                  In stay
+                </option>
+
+                <option value="Checkout">
+                  Checkout
+                </option>
+
+                <option value="Completed">
+                  Completed
+                </option>
+
+                <option value="Cancelled">
+                  Cancelled
+                </option>
               </select>
             </label>
 
+
             <label>
               Guest phone
+
               <input
                 type="tel"
                 value={
@@ -660,15 +1309,16 @@ const HomestayBookings = ({
                 onChange={event =>
                   updateForm(
                     "guestPhone",
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
             </label>
 
+
             <label className="booking-form-full">
               Notes
+
               <textarea
                 value={
                   form.notes
@@ -678,15 +1328,17 @@ const HomestayBookings = ({
                 onChange={event =>
                   updateForm(
                     "notes",
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               />
             </label>
+
           </div>
 
+
           <div className="booking-form-actions">
+
             <button
               type="button"
               className="secondary-button"
@@ -703,6 +1355,7 @@ const HomestayBookings = ({
               Cancel
             </button>
 
+
             <button
               type="button"
               className="primary-button"
@@ -712,12 +1365,21 @@ const HomestayBookings = ({
             >
               Save booking
             </button>
+
           </div>
+
         </div>
       )}
 
+
+      {/* =====================================================
+          SUMMARY
+          ===================================================== */}
+
       <div className="booking-summary">
+
         <div className="booking-summary-card">
+
           <span>
             Total bookings
           </span>
@@ -725,9 +1387,12 @@ const HomestayBookings = ({
           <strong>
             {totalBookings}
           </strong>
+
         </div>
 
+
         <div className="booking-summary-card">
+
           <span>
             Confirmed
           </span>
@@ -735,9 +1400,12 @@ const HomestayBookings = ({
           <strong>
             {confirmedBookings}
           </strong>
+
         </div>
 
+
         <div className="booking-summary-card warning-card">
+
           <span>
             Payment attention
           </span>
@@ -745,9 +1413,12 @@ const HomestayBookings = ({
           <strong>
             {pendingPayments}
           </strong>
+
         </div>
 
+
         <div className="booking-summary-card danger-card">
+
           <span>
             Guest mismatches
           </span>
@@ -755,12 +1426,22 @@ const HomestayBookings = ({
           <strong>
             {guestMismatches}
           </strong>
+
         </div>
+
       </div>
 
+
+      {/* =====================================================
+          RESERVATIONS TABLE
+          ===================================================== */}
+
       <div className="booking-table-card">
+
         <div className="table-heading">
+
           <div>
+
             <h3>
               Reservations
             </h3>
@@ -769,13 +1450,20 @@ const HomestayBookings = ({
               {totalBookings}{" "}
               reservations
             </span>
+
           </div>
+
         </div>
 
+
         <div className="booking-table-wrapper">
+
           <table className="booking-table">
+
             <thead>
+
               <tr>
+
                 <th>
                   Guest
                 </th>
@@ -803,12 +1491,17 @@ const HomestayBookings = ({
                 <th>
                   Status
                 </th>
+
               </tr>
+
             </thead>
 
+
             <tbody>
+
               {sortedBookings.map(
                 booking => {
+
                   const hasGuestMismatch =
                     booking.actualGuests !==
                     undefined &&
@@ -816,6 +1509,7 @@ const HomestayBookings = ({
                     booking.bookedGuests;
 
                   return (
+
                     <tr
                       key={
                         booking.id
@@ -832,8 +1526,11 @@ const HomestayBookings = ({
                         )
                       }
                     >
+
                       <td>
+
                         <div className="guest-cell">
+
                           <strong>
                             {
                               booking.guestName
@@ -845,10 +1542,14 @@ const HomestayBookings = ({
                               booking.id
                             }
                           </span>
+
                         </div>
+
                       </td>
 
+
                       <td>
+
                         <span
                           className={sourceClass(
                             booking.source
@@ -858,10 +1559,14 @@ const HomestayBookings = ({
                             booking.source
                           }
                         </span>
+
                       </td>
 
+
                       <td>
+
                         <div className="stay-cell">
+
                           <strong>
                             {formatDate(
                               booking.checkIn
@@ -874,10 +1579,14 @@ const HomestayBookings = ({
                               booking.checkOut
                             )}
                           </span>
+
                         </div>
+
                       </td>
 
+
                       <td>
+
                         <div
                           className={
                             hasGuestMismatch
@@ -885,6 +1594,7 @@ const HomestayBookings = ({
                               : "guest-count"
                           }
                         >
+
                           <strong>
                             {
                               booking.bookedGuests
@@ -900,16 +1610,22 @@ const HomestayBookings = ({
                                 }
                               </span>
                             )}
+
                         </div>
+
                       </td>
 
+
                       <td>
+
                         <div className="amount-cell">
+
                           <strong>
                             {formatCurrency(
                               booking.amount
                             )}
                           </strong>
+
 
                           {booking.netAmount !==
                             undefined && (
@@ -920,10 +1636,28 @@ const HomestayBookings = ({
                                 )}
                               </span>
                             )}
+
+
+                          {booking.additionalOccupancyCharge !==
+                            undefined &&
+                            booking.additionalOccupancyCharge >
+                            0 && (
+                              <span className="extra-charge-cell">
+                                +{" "}
+                                {formatCurrency(
+                                  booking.additionalOccupancyCharge
+                                )}{" "}
+                                extra
+                              </span>
+                            )}
+
                         </div>
+
                       </td>
 
+
                       <td>
+
                         <span
                           className={paymentClass(
                             booking.paymentStatus
@@ -933,9 +1667,12 @@ const HomestayBookings = ({
                             booking.paymentStatus
                           }
                         </span>
+
                       </td>
 
+
                       <td>
+
                         <span
                           className={statusClass(
                             booking.status
@@ -945,20 +1682,35 @@ const HomestayBookings = ({
                             booking.status
                           }
                         </span>
+
                       </td>
+
                     </tr>
+
                   );
                 }
               )}
+
             </tbody>
+
           </table>
+
         </div>
+
       </div>
+
+
+      {/* =====================================================
+          BOOKING DETAIL
+          ===================================================== */}
 
       {selectedBooking && (
         <div className="booking-detail-card">
+
           <div className="section-head">
+
             <div>
+
               <p className="eyebrow">
                 RESERVATION
               </p>
@@ -974,7 +1726,9 @@ const HomestayBookings = ({
                   selectedBooking.id
                 }
               </p>
+
             </div>
+
 
             <button
               type="button"
@@ -987,10 +1741,18 @@ const HomestayBookings = ({
             >
               Close
             </button>
+
           </div>
 
+
+          {/* =================================================
+              BOOKING INFORMATION
+              ================================================= */}
+
           <div className="booking-detail-grid">
+
             <div>
+
               <span>
                 Source
               </span>
@@ -1000,9 +1762,12 @@ const HomestayBookings = ({
                   selectedBooking.source
                 }
               </strong>
+
             </div>
 
+
             <div>
+
               <span>
                 Check-in
               </span>
@@ -1012,9 +1777,12 @@ const HomestayBookings = ({
                   selectedBooking.checkIn
                 )}
               </strong>
+
             </div>
 
+
             <div>
+
               <span>
                 Check-out
               </span>
@@ -1024,9 +1792,12 @@ const HomestayBookings = ({
                   selectedBooking.checkOut
                 )}
               </strong>
+
             </div>
 
+
             <div>
+
               <span>
                 Booked guests
               </span>
@@ -1036,9 +1807,12 @@ const HomestayBookings = ({
                   selectedBooking.bookedGuests
                 }
               </strong>
+
             </div>
 
+
             <div>
+
               <span>
                 Actual guests
               </span>
@@ -1058,33 +1832,38 @@ const HomestayBookings = ({
                   "Not recorded"
                 }
               </strong>
+
             </div>
 
-            <div>
-              <span>
-                Booking amount
-              </span>
-
-              <strong>
-                {formatCurrency(
-                  selectedBooking.amount
-                )}
-              </strong>
-            </div>
 
             <div>
+
               <span>
                 Payment
               </span>
 
-              <strong>
+              <strong
+                className={
+                  financialSummary?.paymentStatus ===
+                    "Paid"
+                    ? "success-text"
+                    : financialSummary?.paymentStatus ===
+                      "Part paid"
+                      ? "warning-text"
+                      : "danger-text"
+                }
+              >
                 {
+                  financialSummary?.paymentStatus ??
                   selectedBooking.paymentStatus
                 }
               </strong>
+
             </div>
 
+
             <div>
+
               <span>
                 Status
               </span>
@@ -1094,16 +1873,518 @@ const HomestayBookings = ({
                   selectedBooking.status
                 }
               </strong>
+
             </div>
+
           </div>
+
+
+          {/* =================================================
+              FINANCIAL SUMMARY
+              ================================================= */}
+
+          {financialSummary && (
+
+            <div className="booking-financial-summary">
+
+              <div className="financial-summary-header">
+
+                <div>
+
+                  <span className="eyebrow">
+                    BOOKING FINANCIALS
+                  </span>
+
+                  <h3>
+                    Payment summary
+                  </h3>
+
+                </div>
+
+
+                <span
+                  className={`financial-status ${financialSummary.paymentStatus
+                    .toLowerCase()
+                    .replace(
+                      " ",
+                      "-"
+                    )}`}
+                >
+                  {
+                    financialSummary.paymentStatus
+                  }
+                </span>
+
+              </div>
+
+
+              <div className="financial-summary-grid">
+
+                <div>
+
+                  <span>
+                    Original booking
+                  </span>
+
+                  <strong>
+                    {formatCurrency(
+                      financialSummary.originalAmount
+                    )}
+                  </strong>
+
+                </div>
+
+
+                <div>
+
+                  <span>
+                    Approved extra occupancy
+                  </span>
+
+                  <strong className="success-text">
+                    {formatCurrency(
+                      financialSummary.approvedExtraCharge
+                    )}
+                  </strong>
+
+                </div>
+
+
+                <div>
+
+                  <span>
+                    Total booking value
+                  </span>
+
+                  <strong className="total-value">
+                    {formatCurrency(
+                      financialSummary.totalBookingValue
+                    )}
+                  </strong>
+
+                </div>
+
+
+                <div>
+
+                  <span>
+                    Amount received
+                  </span>
+
+                  <strong>
+                    {formatCurrency(
+                      financialSummary.amountReceived
+                    )}
+                  </strong>
+
+                </div>
+
+
+                <div className="balance-due">
+
+                  <span>
+                    Balance due
+                  </span>
+
+                  <strong>
+                    {formatCurrency(
+                      financialSummary.balanceDue
+                    )}
+                  </strong>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          )}
+
+
+          {/* =================================================
+              PAYMENT COLLECTION
+              ================================================= */}
+
+          {financialSummary && (
+
+            <div className="booking-payment-section">
+
+              <div className="payment-section-header">
+
+                <div>
+
+                  <span className="eyebrow">
+                    PAYMENT COLLECTION
+                  </span>
+
+                  <h3>
+                    Record payment
+                  </h3>
+
+                  <p>
+                    Outstanding balance
+                  </p>
+
+                </div>
+
+
+                <div className="payment-outstanding">
+
+                  {formatCurrency(
+                    financialSummary.balanceDue
+                  )}
+
+                </div>
+
+              </div>
+
+
+              {financialSummary.balanceDue > 0 ? (
+
+                <div className="payment-entry-box">
+
+                  <div className="payment-form-grid">
+
+                    <div className="payment-field">
+
+                      <label htmlFor="payment-amount">
+                        Amount received
+                      </label>
+
+                      <div className="payment-input-wrap">
+
+                        <span>
+                          ₹
+                        </span>
+
+                        <input
+                          id="payment-amount"
+                          type="number"
+                          min="1"
+                          max={
+                            financialSummary.balanceDue
+                          }
+                          step="1"
+                          value={
+                            paymentAmount
+                          }
+                          placeholder="0"
+                          onChange={event =>
+                            setPaymentAmount(
+                              event.target.value
+                            )
+                          }
+                        />
+
+                      </div>
+
+                      <small>
+                        Maximum{" "}
+                        {formatCurrency(
+                          financialSummary.balanceDue
+                        )}
+                      </small>
+
+                    </div>
+
+
+                    <div className="payment-field">
+
+                      <label htmlFor="payment-method">
+                        Payment method
+                      </label>
+
+                      <select
+                        id="payment-method"
+                        value={
+                          paymentMethod
+                        }
+                        onChange={event =>
+                          setPaymentMethod(
+                            event.target
+                              .value as PaymentMethod
+                          )
+                        }
+                      >
+
+                        <option value="GPay">
+                          GPay
+                        </option>
+
+                        <option value="UPI">
+                          UPI
+                        </option>
+
+                        <option value="Cash">
+                          Cash
+                        </option>
+
+                        <option value="Bank Transfer">
+                          Bank Transfer
+                        </option>
+
+                        <option value="Other">
+                          Other
+                        </option>
+
+                      </select>
+
+                    </div>
+
+
+                    <div className="payment-field">
+
+                      <label htmlFor="payment-note">
+                        Payment note
+                      </label>
+
+                      <input
+                        id="payment-note"
+                        type="text"
+                        value={
+                          paymentNote
+                        }
+                        placeholder="e.g. Balance payment"
+                        onChange={event =>
+                          setPaymentNote(
+                            event.target.value
+                          )
+                        }
+                      />
+
+                    </div>
+
+                  </div>
+
+
+                  <div className="payment-submit-row">
+
+                    <div className="payment-after-info">
+
+                      <span>
+                        Balance after payment
+                      </span>
+
+                      <strong>
+                        {formatCurrency(
+                          Math.max(
+                            financialSummary.balanceDue -
+                            (Number(
+                              paymentAmount
+                            ) || 0),
+                            0
+                          )
+                        )}
+                      </strong>
+
+                    </div>
+
+
+                    <button
+                      type="button"
+                      className="primary-button payment-record-button"
+                      onClick={
+                        handleRecordPayment
+                      }
+                      disabled={
+                        !paymentAmount ||
+                        Number(
+                          paymentAmount
+                        ) <= 0 ||
+                        Number(
+                          paymentAmount
+                        ) >
+                        financialSummary.balanceDue
+                      }
+                    >
+                      Record payment
+                    </button>
+
+                  </div>
+
+                </div>
+
+              ) : (
+
+                <div className="payment-paid-message">
+
+                  <strong>
+                    ✓ Payment fully received
+                  </strong>
+
+                  <span>
+                    There is no outstanding
+                    balance for this
+                    booking.
+                  </span>
+
+                </div>
+
+              )}
+
+            </div>
+
+          )}
+
+
+          {/* =================================================
+              PAYMENT HISTORY
+              ================================================= */}
+
+          {financialSummary && (
+
+            <div className="booking-payment-history">
+
+              <div className="payment-history-header">
+
+                <div>
+
+                  <span className="eyebrow">
+                    PAYMENT HISTORY
+                  </span>
+
+                  <h3>
+                    Payments received
+                  </h3>
+
+                  <p>
+                    All payments recorded
+                    against this reservation.
+                  </p>
+
+                </div>
+
+
+                <div className="payment-history-total">
+
+                  <span>
+                    Total received
+                  </span>
+
+                  <strong>
+                    {formatCurrency(
+                      financialSummary.amountReceived
+                    )}
+                  </strong>
+
+                </div>
+
+              </div>
+
+
+              {paymentHistory.length > 0 ? (
+
+                <div className="payment-history-list">
+
+                  {paymentHistory.map(
+                    payment => (
+
+                      <div
+                        key={
+                          payment.id
+                        }
+                        className="payment-history-row"
+                      >
+
+                        <div className="payment-history-icon">
+                          ₹
+                        </div>
+
+
+                        <div className="payment-history-details">
+
+                          <div className="payment-history-primary">
+
+                            <strong>
+                              {formatCurrency(
+                                payment.amount
+                              )}
+                            </strong>
+
+                            <span className="payment-method-badge">
+                              {
+                                payment.method
+                              }
+                            </span>
+
+                          </div>
+
+
+                          {payment.note && (
+
+                            <p>
+                              {
+                                payment.note
+                              }
+                            </p>
+
+                          )}
+
+
+                          <small>
+                            Payment ID:{" "}
+                            {
+                              payment.id
+                            }
+                          </small>
+
+                        </div>
+
+
+                        <div className="payment-history-date">
+
+                          {formatDateTime(
+                            payment.receivedAt
+                          )}
+
+                        </div>
+
+                      </div>
+
+                    )
+                  )}
+
+                </div>
+
+              ) : (
+
+                <div className="payment-history-empty">
+
+                  <strong>
+                    No payments recorded yet
+                  </strong>
+
+                  <span>
+                    Payments added using
+                    the Record Payment
+                    button will appear
+                    here.
+                  </span>
+
+                </div>
+
+              )}
+
+            </div>
+
+          )}
+
+
+          {/* =================================================
+              OWNER DECISION
+              ================================================= */}
 
           {selectedBooking.actualGuests !==
             undefined &&
             selectedBooking.actualGuests >
             selectedBooking.bookedGuests && (
+
               <div className="occupancy-decision">
+
                 <div className="occupancy-decision-header">
+
                   <div>
+
                     <span className="eyebrow">
                       OWNER DECISION
                     </span>
@@ -1116,13 +2397,16 @@ const HomestayBookings = ({
                       {
                         selectedBooking.bookedGuests
                       }{" "}
-                      guests were booked, but{" "}
+                      guests were booked,
+                      but{" "}
                       {
                         selectedBooking.actualGuests
                       }{" "}
                       guests are recorded.
                     </p>
+
                   </div>
+
 
                   <span
                     className={`decision-status ${selectedBooking.occupancyDecision ===
@@ -1137,150 +2421,228 @@ const HomestayBookings = ({
                             : "pending"
                       }`}
                   >
-                    {selectedBooking.occupancyDecision ??
-                      "Pending"}
+                    {
+                      selectedBooking.occupancyDecision ??
+                      "Pending"
+                    }
                   </span>
+
                 </div>
+
+
+                {/* =============================================
+                  PRICING CALCULATION
+                  ============================================= */}
+
+                {extraGuestCharge &&
+                  extraGuestCharge.extraGuests >
+                  0 && (
+
+                    <div className="extra-charge-calculation">
+
+                      <div>
+
+                        <span>
+                          Additional occupancy
+                        </span>
+
+                        <strong>
+                          {
+                            extraGuestCharge.extraGuests
+                          }{" "}
+                          guest
+                          {extraGuestCharge.extraGuests !==
+                            1
+                            ? "s"
+                            : ""}
+                        </strong>
+
+                      </div>
+
+
+                      <div>
+
+                        <span>
+                          Rate per extra guest
+                        </span>
+
+                        <strong>
+                          {formatCurrency(
+                            extraGuestCharge.ratePerGuest
+                          )}
+                        </strong>
+
+                      </div>
+
+
+                      <div className="extra-charge-total">
+
+                        <span>
+                          Additional charge
+                        </span>
+
+                        <strong>
+                          {formatCurrency(
+                            extraGuestCharge.amount
+                          )}
+                        </strong>
+
+                      </div>
+
+                    </div>
+
+                  )}
+
+
+                {/* =============================================
+                  OWNER DECISION ACTIONS
+                  ============================================= */}
 
                 {(!selectedBooking.occupancyDecision ||
                   selectedBooking.occupancyDecision ===
                   "Pending") && (
+
                     <div className="occupancy-decision-actions">
+
                       <button
                         type="button"
                         className="primary-button"
-                    onClick={() => {
-                      const decision =
-                        "Approved extra charge";
-
-                      businessStore.updateOccupancyDecision(
-                        selectedBooking.id,
-                        decision,
-                        0
-                      );
-
-                      setSelectedBooking({
-                        ...selectedBooking,
-                        occupancyDecision: decision,
-                        additionalOccupancyCharge: 0,
-                        occupancyDecisionAt:
-                          new Date().toISOString()
-                      });
-                    }}
+                        onClick={() =>
+                          handleOccupancyDecision(
+                            "Approved extra charge"
+                          )
+                        }
                       >
-                        Approve extra charge
+                        Approve{" "}
+                        {extraGuestCharge
+                          ? formatCurrency(
+                            extraGuestCharge.amount
+                          )
+                          : "extra charge"}
                       </button>
+
 
                       <button
                         type="button"
                         className="secondary-button"
-                    onClick={() => {
-                      const decision =
-                        "No additional charge";
-
-                      businessStore.updateOccupancyDecision(
-                        selectedBooking.id,
-                        decision
-                      );
-
-                      setSelectedBooking({
-                        ...selectedBooking,
-                        occupancyDecision: decision,
-                        additionalOccupancyCharge: 0,
-                        occupancyDecisionAt:
-                          new Date().toISOString()
-                      });
-                    }}
+                        onClick={() =>
+                          handleOccupancyDecision(
+                            "No additional charge"
+                          )
+                        }
                       >
                         No additional charge
                       </button>
 
+
                       <button
                         type="button"
                         className="secondary-button"
-                    onClick={() => {
-                      const decision =
-                        "Keep under review";
-
-                      businessStore.updateOccupancyDecision(
-                        selectedBooking.id,
-                        decision
-                      );
-
-                      setSelectedBooking({
-                        ...selectedBooking,
-                        occupancyDecision: decision,
-                        additionalOccupancyCharge: 0,
-                        occupancyDecisionAt:
-                          new Date().toISOString()
-                      });
-                    }}
+                        onClick={() =>
+                          handleOccupancyDecision(
+                            "Keep under review"
+                          )
+                        }
                       >
                         Keep under review
                       </button>
+
                     </div>
+
                   )}
+
+
+                {/* =============================================
+                  COMPLETED DECISION
+                  ============================================= */}
 
                 {selectedBooking.occupancyDecision &&
                   selectedBooking.occupancyDecision !==
                   "Pending" && (
-                    <div className="decision-completed">
-                      <strong>
-                        Owner decision recorded
-                      </strong>
 
-                      <span>
-                        {
-                          selectedBooking.occupancyDecision
-                        }
-                      </span>
+                    <div className="decision-completed">
+
+                      <div className="decision-record">
+
+                        <div>
+
+                          <span>
+                            Owner decision
+                          </span>
+
+                          <strong>
+                            {
+                              selectedBooking.occupancyDecision
+                            }
+                          </strong>
+
+                        </div>
+
+
+                        {selectedBooking.occupancyDecision ===
+                          "Approved extra charge" && (
+
+                            <div>
+
+                              <span>
+                                Approved additional charge
+                              </span>
+
+                              <strong className="success-text">
+
+                                {formatCurrency(
+                                  selectedBooking
+                                    .additionalOccupancyCharge &&
+                                    selectedBooking
+                                      .additionalOccupancyCharge >
+                                    0
+                                    ? selectedBooking
+                                      .additionalOccupancyCharge
+                                    : extraGuestCharge?.amount ??
+                                    0
+                                )}
+
+                              </strong>
+
+                            </div>
+
+                          )}
+
+                      </div>
+
 
                       {selectedBooking.occupancyDecisionAt && (
+
                         <small>
+
+                          Recorded{" "}
                           {new Date(
                             selectedBooking.occupancyDecisionAt
                           ).toLocaleString(
                             "en-IN"
                           )}
+
                         </small>
+
                       )}
+
                     </div>
+
                   )}
+
               </div>
+
             )}
 
-          {selectedBooking.actualGuests !==
-            undefined &&
-            selectedBooking.actualGuests >
-            selectedBooking.bookedGuests && (
-              <div className="booking-warning">
-                <strong>
-                  Guest count
-                  mismatch
-                </strong>
 
-                <p>
-                  Booked for{" "}
-                  {
-                    selectedBooking.bookedGuests
-                  }{" "}
-                  guests but{" "}
-                  {
-                    selectedBooking.actualGuests
-                  }{" "}
-                  actual guests
-                  are recorded.
-                  Owner review is
-                  required before
-                  applying an
-                  additional
-                  occupancy charge.
-                </p>
-              </div>
-            )}
+          {/* =================================================
+              NOTES
+              ================================================= */}
 
           {selectedBooking.notes && (
+
             <div className="booking-notes">
+
               <span>
                 Notes
               </span>
@@ -1290,12 +2652,21 @@ const HomestayBookings = ({
                   selectedBooking.notes
                 }
               </p>
+
             </div>
+
           )}
 
+
+          {/* =================================================
+              BOOKING ACTIONS
+              ================================================= */}
+
           <div className="booking-detail-actions">
+
             {nextStatus &&
               nextStatusLabel && (
+
                 <button
                   type="button"
                   className={
@@ -1314,12 +2685,15 @@ const HomestayBookings = ({
                     nextStatusLabel
                   }
                 </button>
+
               )}
+
 
             {selectedBooking.status !==
               "Completed" &&
               selectedBooking.status !==
               "Cancelled" && (
+
                 <button
                   type="button"
                   className="secondary-button danger-button"
@@ -1329,10 +2703,14 @@ const HomestayBookings = ({
                 >
                   Cancel booking
                 </button>
+
               )}
+
           </div>
+
         </div>
       )}
+
     </section>
   );
 };

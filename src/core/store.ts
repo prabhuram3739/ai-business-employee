@@ -1,6 +1,9 @@
 import type {
     Activity,
     HomestayBooking,
+    PaymentMethod,
+    PaymentRecord,
+    PaymentStatus,
     WorkItem
 } from "./types";
 
@@ -60,6 +63,28 @@ class BusinessStore {
         workItems: [],
         activities: []
     };
+
+    private calculatePaymentStatus(
+        booking: HomestayBooking,
+        amountReceived: number
+    ): PaymentStatus {
+        const extraCharge =
+            booking.additionalOccupancyCharge ??
+            0;
+
+        const totalAmount =
+            booking.amount + extraCharge;
+
+        if (amountReceived >= totalAmount) {
+            return "Paid";
+        }
+
+        if (amountReceived > 0) {
+            return "Part paid";
+        }
+
+        return "Pending";
+    }
 
     private listeners =
         new Set<StoreListener>();
@@ -145,6 +170,64 @@ class BusinessStore {
         this.persist();
         this.notify();
     };
+
+    recordBookingPayment(
+        bookingId: string,
+        amount: number,
+        method: PaymentMethod,
+        note?: string
+    ): void {
+        if (amount <= 0) {
+            return;
+        }
+
+        this.updateBookings(bookings =>
+            bookings.map(booking => {
+                if (booking.id !== bookingId) {
+                    return booking;
+                }
+
+                const currentReceived =
+                    booking.amountReceived ?? 0;
+
+                const payment: PaymentRecord = {
+                    id: `PAY-${Date.now()}`,
+                    amount,
+                    method,
+                    receivedAt:
+                        new Date().toISOString(),
+                    ...(note?.trim()
+                        ? {
+                            note: note.trim()
+                        }
+                        : {})
+                };
+
+                const paymentHistory = [
+                    ...(booking.paymentHistory ?? []),
+                    payment
+                ];
+
+                const newAmountReceived =
+                    currentReceived + amount;
+
+                return {
+                    ...booking,
+
+                    amountReceived:
+                        newAmountReceived,
+
+                    paymentHistory,
+
+                    paymentStatus:
+                        this.calculatePaymentStatus(
+                            booking,
+                            newAmountReceived
+                        )
+                };
+            })
+        );
+    }
 
     updateOccupancyDecision(
         id: string,
