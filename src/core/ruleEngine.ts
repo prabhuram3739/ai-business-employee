@@ -28,8 +28,12 @@ const evaluateCondition = (
         case "actual_guest_count > booked_guest_count":
             return (
                 booking?.actualGuests !== undefined &&
-                booking.actualGuests >
-                booking.bookedGuests
+                booking.actualGuests > booking.bookedGuests &&
+                (
+                    !booking.occupancyDecision ||
+                    booking.occupancyDecision === "Pending" ||
+                    booking.occupancyDecision === "Keep under review"
+                )
             );
 
         case "checkin_within_24_hours": {

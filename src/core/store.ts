@@ -68,18 +68,27 @@ class BusinessStore {
         booking: HomestayBooking,
         amountReceived: number
     ): PaymentStatus {
-        const extraCharge =
-            booking.additionalOccupancyCharge ??
-            0;
+        const approvedExtraCharge =
+            booking.occupancyDecision ===
+                "Approved extra charge"
+                ? booking.additionalOccupancyCharge ?? 0
+                : 0;
 
-        const totalAmount =
-            booking.amount + extraCharge;
+        const totalAmount = Math.max(
+            0,
+            booking.amount + approvedExtraCharge
+        );
 
-        if (amountReceived >= totalAmount) {
+        const received = Math.max(
+            0,
+            amountReceived
+        );
+
+        if (received >= totalAmount) {
             return "Paid";
         }
 
-        if (amountReceived > 0) {
+        if (received > 0) {
             return "Part paid";
         }
 

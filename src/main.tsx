@@ -45,6 +45,12 @@ import { initializeBusinessStore } from "./core/storeInitializer";
 
 import HomestayBookings from "./components/HomestayBookings";
 
+import CommandCenterAlerts from "./components/CommandCenterAlerts";
+
+import PaymentReconciliation from "./components/PaymentReconciliation";
+
+import HomestayDailyOperations from "./components/HomestayDailyOperations";
+
 import type {
   BusinessModule,
   WorkItem,
@@ -52,7 +58,8 @@ import type {
   WorkflowRule,
   WorkflowStage,
   FieldDefinition,
-  IntegrationDefinition
+  IntegrationDefinition,
+  HomestayBooking
 } from "./core/types";
 
 import "./styles.css";
@@ -70,6 +77,7 @@ type ModuleTab =
 
 type DashboardProps = {
   items: WorkItem[];
+  bookings: HomestayBooking[];
   resolve: (id: string) => void;
   open: number;
   liveHomestayExceptions: BusinessException[];
@@ -336,9 +344,12 @@ const App = (): React.JSX.Element => {
           </div>
 
           <div className="top-actions">
-
             <span className="date">
-              18 Aug 2026
+              {new Date().toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}
             </span>
 
             <button
@@ -365,6 +376,7 @@ const App = (): React.JSX.Element => {
         ) : (
               <Dashboard
                 items={items}
+                bookings={bookings}
                 resolve={resolve}
                 open={open}
                 liveHomestayExceptions={liveHomestayExceptions}
@@ -384,6 +396,7 @@ const App = (): React.JSX.Element => {
 
 const Dashboard = ({
   items,
+  bookings,
   resolve,
   open,
   liveHomestayExceptions,
@@ -435,6 +448,18 @@ const Dashboard = ({
       <ExceptionCenter
         exceptions={liveHomestayExceptions}
         onReview={onExceptionReview}
+      />
+      <CommandCenterAlerts
+        bookings={businessStore.getState().bookings}
+        onReviewBooking={onExceptionReview}
+      />
+      <PaymentReconciliation
+        bookings={bookings}
+        onReviewBooking={onExceptionReview}
+      />
+      <HomestayDailyOperations
+        bookings={bookings}
+        onReviewBooking={onExceptionReview}
       />
       <section className="cards four">
 
